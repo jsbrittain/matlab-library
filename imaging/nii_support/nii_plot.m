@@ -1,0 +1,60 @@
+function nii_plot(nii,dim,mode,param)
+%function nii_plot(nii,dim,mode,param)
+%
+% Supplementary plot routine for Nifti toolbox
+%
+% Dimension
+%   1   Axial
+%   2   Coronal
+%   3   Saggital
+%
+% Mode
+%   0   Slice,                          param = slice number
+%   1   Mean,                           param = min threshold
+%   2   Maximum Intensity Projection,   param = N/A
+%   3   Surface,                        param = min threshold
+%
+%function nii_plot(nii,dim,mode,param)
+
+% Display version
+img = nii.img;
+
+% Process image
+switch ( mode )
+    
+    case 0,     % Display slice
+        % Slice number
+        if (~exist('param','var'))
+            error(' Slice number required for plotting!');
+        end;
+        switch ( dim )
+            case 1, img = img(param,:,:);
+            case 2, img = img(:,param,:);
+            case 3, img = img(:,:,param);
+        end;
+        
+    case 1,     % Mean intensity
+        % Threshold parameter
+        if (exist('param','var'))
+            img(img<param)=param;
+        end;
+        img = mean(img,dim);
+        
+    case 2,     % Maximum intensity projection (MIP)
+        img = max(img,[],dim);
+    
+    case 3,     % Surface (nearest edge)
+        
+        
+end;
+
+% Display X-ray composition
+imagesc(fliplr(squeeze( img ))');
+colormap(gray(256));
+
+% Fix aspect-ratio
+switch ( dim )
+    case 1, set(gca,'DataAspectRatio',nii.hdr.dime.pixdim([4 3 2]));
+    case 2, set(gca,'DataAspectRatio',nii.hdr.dime.pixdim([4 2 3]));
+    case 3, set(gca,'DataAspectRatio',nii.hdr.dime.pixdim([2 3 4]));
+end;

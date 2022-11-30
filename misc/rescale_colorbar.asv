@@ -1,0 +1,33 @@
+function rescale_colorbar(ah);
+%function rescale_colorbar(ah);
+%
+% Reduce influence of colorbar on axis
+%
+% Input parameters
+%       ah      master axis handle (default: gca)
+%
+% Note that a new colorbar is created by this routine.
+%
+%function rescale_colorbar(ah,ch);
+
+% Check input parameters
+if (nargin<1)
+    ah=gca;
+end;
+if (~ishandle(ah))
+    error(' Handle provided does not point to a valid graphic object.');
+end;
+
+% Determine colorbar handle if one exists, otherwise create one
+
+ch=colorbar('peer',ah);
+
+% Rescale axes to reduce colorbar influence
+ahpos=get(ah,'position');
+chpos=get(ch,'position');
+width=1/4;                      % Rescale to a portion of original colorbar width
+ahpos(3)=ahpos(3)+(1-width)*chpos(3)+(chpos(1)-ahpos(1)-ahpos(3))/2;
+chpos(1)=chpos(1)+(1-width)*chpos(3);
+chpos(3)=width*chpos(3);
+set(ah,'position',ahpos);
+set(ch,'position',chpos);

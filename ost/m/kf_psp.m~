@@ -1,0 +1,22 @@
+
+function kf_psp(sp,params);
+%function kf_psp(sp,params);
+%
+% Kalman-Fourier summary plotting routine for auto-spectra, coherence and phase
+%
+% Input parameters
+%       sp          Spectral matrix
+%       params      Parameters structure
+%
+%function kf_psp(sp,params);
+
+% Determine label
+label=kf_label(params);
+
+% Plot spectral summary of adaptive method
+figure;
+subplot(2,2,1); kf_psp_a(sp,params,label);
+subplot(2,2,2); kf_psp_b(sp,params,label);
+%subplot(2,2,3); kf_psp_c(sp,params,label);
+subplot(2,2,3); kf_psp_ph(sp,params,label);
+subplot(2,2,4); kf_psp_coh(sp,params,label);

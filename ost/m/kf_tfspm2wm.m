@@ -1,0 +1,144 @@
+function [sp,Psp]=kf_tfspm2wm(sp,cl,Q,smooth);
+%function [sp,Psp]=kf_tfspm2wm(sp,cl,Q,smooth);
+%
+% Hybrid Kalman-Fourier analysis
+% Utilises a single linear Kalman filter
+%
+% Performs periodogram filtering to produce spectral statistics across
+% non-stationary (or assumed stationary) trials.  Includes self-startup by
+% estimating the 'true'-local spectrum as the 'a priori' spectral estimate,
+% beginning with the first periogram (with coherence=1), then continually
+% smoothing and updating the spectra producing a running coherence
+% estimate (assumes a slowly varying inter-trial spectrum).
+%
+% This version addresses the following issues
+%       startup         Periodogram estimate used for first variance
+%       variance        Running spectral estimate used for successive
+%                       variance estimates (removes disjoint analysis)
+% Issues
+%       bounding        (non-)adaptive unbound for moderate Q%age (>1)
+%       Qpercentage     Need to justify this measure and not a scalar Q
+%       distribution    Periodogram distribution not gaussian
+%
+% Input parameters
+%       sp              Spectral matrix of Fourier coefficients.
+%       cl              Confidence limits structure for Fourier analysis.
+%       Qpercentage     (opt) Process noise variance (as a percentage of R) (default 0.1).
+%       smooth          (opt) Smooth spectra (Backward filter spectra after forward filtering, 1=Yes 0=No).
+%
+% Output parameters
+%       sp              Spectral matrix, cols: (Dim 3 represent group entities)
+%                           1       Auto-spectra ch.1
+%                           2       Auto-spectra ch.2
+%                           3       Cross-spectra ch.1,2
+%                           4       Coherence
+%       Psp             Estimated error covariance matrix corresponding to sp.
+%
+%function [sp,Psp]=kf_tfspm2wm(sp,cl,Q,smooth);
+
+% Determine data parameters
+M=size(sp,3);      % Group count
+fpts=size(sp,1);   % Number of frequency points
+vlen=3*fpts;       % Length of state vector
+
+% Determine process noise covariance (Q)
+if (~exist('Q'))
+    Q=0.1/100;     % Default value
+end;
+if (~exist('smooth'))
+    smooth=logical(0);
+end;
+
+% Initialise variable space
+x=zeros(vlen,M);
+P=zeros(vlen,vlen,M);
+P2=zeros(vlen,M);
+xp=zeros(vlen,M+1);
+Pp=zeros(vlen,vlen,M+1);
+R=zeros(vlen,vlen,1);
+% Transition matrices
+theta=1;                                                            % State-transition matrix
+H=1;                                                                % Process-to-measurement matrix
+
+% Initial conditions
+initL=1;                                                            % No. periodograms for initial estimate
+xp(:,1)=reshape(mean(sp(:,:,1:initL),3),vlen,1);                    % Initial 'a priori' state vector
+chans={[0 0];[1 1];[0 1];[1 0]};
+spec=sp(:,:,1); spec(:,4)=conj(sp(:,3));
+for i=0:2           % Column
+    for j=0:i       % Row
+        switch 2*chans{i+1}(1)+chans{j+1}(1)
+            case 0, chan1=1;
+            case 1, chan1=3;
+            case 2, chan1=4;
+            case 3, chan1=2;
+        end;
+        switch 2*chans{i+1}(2)+chans{j+1}(2)
+            case 0, chan2=1;
+            case 1, chan2=3;
+            case 2, chan2=4;
+            case 3, chan2=2;
+        end;
+        R(i*fpts+1:(i+1)*fpts,j*fpts+1:(j+1)*fpts)=diag(spec(:,chan1).*conj(spec(:,chan2))/initL);
+    end;
+end;
+R=tril(R)+tril(R,-1)';      % Take advantage of conjugate symmetry
+Pp(:,:,1)=R;                % Initial 'a priori' error cov
+I=eye(vlen);
+
+% Kalman filter - forward sweep
+for ind=1:M
+    disp(['Running kalman filter for group ' int2str(ind) ' of ' int2str(M)]);
+    % Construct state vector
+    newz=reshape(sp(:,:,ind),vlen,1);
+    % Construct measurement noise covariance (from updated spectrum) - see
+    % lab book 11/02/2006 for a description of this method
+    spec=sp(:,:,ind); spec(:,4)=conj(sp(:,3));
+    for i=0:2           % Column
+        for j=0:i       % Row
+            switch 2*chans{i+1}(1)+chans{j+1}(1)
+                case 0, chan1=1;
+                case 1, chan1=3;
+                case 2, chan1=4;
+                case 3, chan1=2;
+            end;
+            switch 2*chans{i+1}(2)+chans{j+1}(2)
+                case 0, chan2=1;
+                case 1, chan2=3;
+                case 2, chan2=4;
+                case 3, chan2=2;
+            end;
+            R(i*fpts+1:(i+1)*fpts,j*fpts+1:(j+1)*fpts)=diag(spec(:,chan1).*conj(spec(:,chan2))/cl(ind).seg_tot);
+        end;
+    end;
+    R=tril(R)+tril(R,-1)';      % Take advantage of conjugate symmetry
+    
+    % Kalman filter
+    [x(:,ind),P(:,:,ind),K,Pp(:,:,ind+1),xp(:,ind+1)]=kalm_filtr(newz,Q*R,R,theta,H,Pp(:,:,ind),xp(:,ind));
+    P2(:,ind)=diag(P(:,:,ind));
+end;
+
+% Kalman smoother - backward sweep
+if (smooth==1)
+	xN=zeros(vlen,M);
+	PN=zeros(vlen,vlen,M);
+    xN(:,M)=x(:,M);
+    PN(:,:,M)=P(:,:,M);
+	for ind=M-1:-1:1
+        disp(['Running kalman filter for group ' int2str(ind) ' of ' int2str(M) ' (B)']);
+        A=P(:,:,ind)./Pp(:,:,ind+1);
+        xN(:,ind)=x(:,ind)+A*(xN(:,ind+1)-xp(:,ind+1));
+        PN(:,:,ind)=P(:,:,ind)+A*(PN(:,:,ind+1)-Pp(:,:,ind+1))*A;
+	end;
+	x=xN;
+	P=PN;
+end;
+
+% Formulate frequency domain output
+sp=reshape(x,fpts,3,M);
+Psp=reshape(P2,fpts,3,M);
+
+% Calculate coherence
+for ind=1:M
+    sp(:,4,ind)=(abs(sp(:,3,ind)).^2)./((sp(:,1,ind)).*(sp(:,2,ind)));
+end;

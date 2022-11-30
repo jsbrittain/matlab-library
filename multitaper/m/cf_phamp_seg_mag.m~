@@ -1,0 +1,126 @@
+function params = cf_phamp_seg_mag( x, y, passbandx, passbandy, dropoff, rate, amp_norm_secs, smoothing, trimlevel, bincount, permutation_count, segs )
+%
+%
+% Most preprocessing and amplitude analysis done on 'x', whereas 'y'
+% provides the phase comparitor.
+%
+%
+
+warning('Ignoring permutations!');
+
+% Default parameters
+if (isempty(passbandy))
+    passbandy = passbandx;
+end;
+if (isempty(smoothing))
+    smoothing = 1;
+end;
+if (isempty(permutation_count))
+    permutation_count = 0;
+end;
+
+%% Preprocessing
+
+% Update display
+disp( 'Preprocessing...' );
+
+if (~isempty(passbandx))
+    % Specify filter
+    d = fdesign.bandpass;
+    d = fdesign.bandpass(passbandx(1)-dropoff,passbandx(1),passbandx(2),passbandx(2)+dropoff,d.Astop1,d.Apass,d.Astop2,rate);
+    h = design(d,'kaiserwin');      % Kaiser window FIR filter (linear phase)
+    Num = h.Numerator;
+    lNum = length(Num);
+    % Filter first channel
+    xf = filtfilt(Num,1,x);
+    % Filter TACS channel with secondary filter
+    if (~isempty(find(passbandx~=passbandy, 1)))
+        % Specify filter
+        d = fdesign.bandpass(passbandy(1)-dropoff,passbandy(1),passbandy(2),passbandy(2)+dropoff,d.Astop1,d.Apass,d.Astop2,rate);
+        h = design(d,'kaiserwin');      % Kaiser window FIR filter (linear phase)
+        Num = h.Numerator;
+        lNum = max([lNum length(Num)]);
+    end;
+    % Filter second channel
+    yf = filtfilt(Num,1,y);
+    % Chop edges
+    xf = xf(lNum:end-lNum);
+    yf = yf(lNum:end-lNum);
+else
+    % No filtering
+    xf = x;
+    yf = y;
+end;
+
+% Hilbert and smooth Ax
+xfh = hilbert(xf);
+xfh = smooth(xfh, smoothing);
+
+% Accelerometer magnitude
+magxh = abs(xfh);
+magxh_orig = magxh;
+% Running-average amplitude normalisation
+if (~isempty(amp_norm_secs))
+    magxh = magxh./runavg(magxh,amp_norm_secs*rate);
+end;
+
+% Accelerometer (instantaneous frequency)
+ifxh = diff(angle(xfh)); ifxh = ifxh([(1:end) end]);
+ifxh(ifxh<0) = ifxh(ifxh<0) + 2*pi;
+ifxh = ifxh*rate/2/pi;
+% Reset severe deflections to mean and smooth
+ifxh(ifxh>(2*passbandx(2))) = mean(ifxh);
+ifxh = smooth(ifxh,smoothing);
+
+%% Analyse TACS data, then randomly permute phase and continue re-analysing
+
+% Reset phase
+yfh = hilbert(yf);
+yfh = smooth(yfh, smoothing);
+
+% Reserve memory
+rmag = zeros(segs, bincount);
+rmagsd = rmag; rif = rmag; rcount = rif;
+
+% Corresponding Phase vector
+phaseangle = (0:(bincount-1))/bincount*2*pi - pi;
+
+% Determine maglevel
+[~,ix] = sort(magxh);
+iix = round( (1:length(ix))*(segs-0.5)/length(ix) );
+%iix( iix==segs ) = 0;
+maglevel(ix) = iix;
+
+% Iterate through permutations
+for k = (1:segs)
+    
+    % Update display
+    disp([' Amp-ph seg ' num2str(k) ' of ' num2str(segs) ])
+    
+    % Compute phase angle difference (and quantize)
+    anglediff = angle( xfh./yfh );
+    anglegrid = round( (anglediff+pi)/2/pi*bincount );
+    anglegrid(anglegrid==bincount) = 0;                     % Wrap first/last half-elements together
+    
+    % Mean amplitude per angle
+    for n = (0:(bincount-1))
+        rmag(k,n+1) = trimmean( magxh((anglegrid==n) & (maglevel==segs)), trimlevel );
+        rmagsd(k,n+1) = std( magxh((anglegrid==n) & (maglevel==segs)) );
+        rif(k,n+1) = trimmean( ifxh((anglegrid==n) & (maglevel==segs)), trimlevel );
+        rcount(k,n+1) = sum((anglegrid==n) & (maglevel==segs));
+    end;
+    
+end;
+
+% Populate parameters structure
+params.phaseangle = phaseangle;
+params.rmag = rmag;
+params.rmagsd = rmagsd;
+params.rif = rif;
+params.rcount = rcountl
+params.settings.amp_norm_secs = amp_norm_secs;
+params.settings.permutation_count = permutation_count;
+params.settings.bincount = bincount;
+
+% Display update
+disp('done.');

@@ -1,0 +1,74 @@
+function wlpsp_ph(time,Ph,wlparam,cl,Coh);
+%function wlpsp_ph(time,Ph,wlparam,[cl,Coh],[opt_str]);
+%
+%
+%
+
+% Default parameters
+cl_limits=0;
+cl_window=0;
+
+% Check input parameters
+if (exist('cl'))
+    cl_limits=1;
+end;
+if (length(cl)>1)
+    cl_window=1;
+end;
+
+% Parse options string
+options=deblank(opt_str);
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'g'                    % Fixed integration window
+            global_sig=1;
+    	otherwise
+            error([' (wlpsp_a.m) Unknown option: ' opt]);
+    end;
+end;
+
+% Determine confidence interval
+if (cl_limits)
+    % Determine time averages for various frequencies %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    meanPh=zeros(size(Ph,1),1);
+    for ind=1:length(wlparam.freqs)
+        if (isempty(Ph(ind,Ph(ind,:)>-Inf))), continue; end;
+        meanS(ind)=mean(S(ind,S(ind,:)>-Inf));
+    end;
+    
+    % Change to global significance
+    if (global_sig)
+        meanPh(:)=mean(meanPh);
+    end;
+    
+    % Construct significance contour
+    sigPh=zeros(size(Ph));
+    if (~cl_window), WSsig=1.96*sqrt((1/(2*cl.K))*(1./Coh-1)); end;
+    for ind=1:length(wlparam.freqs)
+        % 95% confidence interval
+        if (cl_window)
+            WSsig=1.96*sqrt((1/(2*cl(ind).K))*(1./Coh-1));
+        end;
+        
+        % Determine areas outside of confidence interval
+        sind=S(ind,:)>-Inf;                                     %%%%%%%%%%%%%%%
+        sigS(ind,sind)=abs(S(ind,sind)-meanS(ind))>WSsig;       %%%%%%%%%%%%%%%
+    end;
+end;
+
+% Normalise phase within [0,1]
+Ph=Ph-min(Ph(:));
+Ph=Ph./maxPh;
+
+% Get colormap properties
+cmap=colormap;
+k=size(cmap,1);
+
+% Plot phase
+image(time,wlparam.freqs,flipud(Ph)*(k-1)+1);
+set(gca,'yticklabel',int2str(wlparam.freqs(end)-str2num(get(gca,'yticklabel'))));
+
+% Label plot
+title('Phase coherence');

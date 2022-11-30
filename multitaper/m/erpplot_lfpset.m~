@@ -1,0 +1,37 @@
+function erpplot_lfpset(erptime,epochs,individual,confscaling,smoothing,colstr,facealpha)
+
+if (~exist('colstr'))
+    colstrlist={'g','r','y','b'};
+end;
+if (~exist('facealpha'))
+    facealpha=0.7;
+end;
+
+subplot(4,2,1); erpplot(erptime,epochs(:,4,:),individual,confscaling,smoothing,colstr,facealpha);
+                title(chlabels{4}); ylim(ymono*[-1 1]);
+subplot(4,2,3); erpplot(erptime,epochs(:,3,:),individual,confscaling,smoothing,colstr,facealpha);
+                title(chlabels{3}); ylim(ymono*[-1 1]);
+subplot(4,2,5); erpplot(erptime,epochs(:,2,:),individual,confscaling,smoothing,colstr,facealpha);
+                title(chlabels{2}); ylim(ymono*[-1 1]);
+subplot(4,2,7); erpplot(erptime,epochs(:,1,:),individual,confscaling,smoothing,colstr,facealpha);
+                title(chlabels{1}); ylim(ymono*[-1 1]);
+for ind=[1:2:7]
+    subplot(4,2,ind);
+    set(gca,'xminorgrid','on');
+    set(gca,'yminorgrid','on');
+    grid('on'); box('on');
+end;
+
+% Plot bipolars
+subplot(3,2,2); h(colind,:)=erpplot(erptime,epochs(:,7,:),individual,confscaling,smoothing,colstr,facealpha);
+                title(chlabels{7}); ylim(ybi*[-1 1]);
+subplot(3,2,4); erpplot(erptime,epochs(:,6,:),individual,confscaling,smoothing,colstr,facealpha);
+                title(chlabels{6}); ylim(ybi*[-1 1]);
+subplot(3,2,6); erpplot(erptime,epochs(:,5,:),individual,confscaling,smoothing,colstr,facealpha);
+                title(chlabels{5}); ylim(ybi*[-1 1]);
+for ind=[2:2:6]
+    subplot(3,2,ind);
+    set(gca,'xminorgrid','on');
+    set(gca,'yminorgrid','on');
+    grid('on'); box('on');
+end;

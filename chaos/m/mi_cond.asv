@@ -1,0 +1,30 @@
+function I = mi_cond( pxyz )
+%
+% histogram
+%  p(x,y,z)
+% computes
+%  I(X;Y|Z)
+%
+% may be very slow
+%
+
+% Marginal probabilities
+pxyz = pxyz/sum(pxyz(:));   % Ensure normalisation
+pz = sum(sum(pxyz,2),3);
+pxz = sum(pxyz,2);
+pyz = sum(pxyz,1);
+
+if ( true )
+    % Fast way - takes up lots of memory!
+    I = pxyz.*( log( repmat(pz,[size(pxyz,1),size(pxyz,2),1).*pxyz./repmat(pxz,1,size(pxyz,2),3)./repmat(pyz,1,size(pxyz,2),size(pxyz,3)) ) );
+else
+    % Slow way - but works
+    I = 0;
+    for x = (1:size(pxyz,1))
+        for y = (1:size(pxyz,2))
+            for z = (1:size(pxyz,3))
+                I = I + pxyz(x,y,z)*log(pz(z)*pxyz(x,y,z)/pxz(x,z)/pyz(y,z));
+            end;
+        end;
+    end;
+end;

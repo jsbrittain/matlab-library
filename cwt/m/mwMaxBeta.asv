@@ -1,0 +1,18 @@
+function be=mwMaxBeta(ga,A);
+%be=mwMaxBeta(ga,A);
+%
+% Multi-wavelet routine to determine the maximum possible beta
+%
+%be=mwMaxBeta(ga,A);
+
+maxb=1000;
+
+for be=1:maxb
+    C=ga*A*gamma(r)^2/(2*pi*gamma(r+1-1/ga)*gamma(r+1/ga))+1;
+    if (isnan('C'))
+        break;
+    end;
+end;
+if (be==1)
+    error(' Unable to determine beta with these parameters');
+end;

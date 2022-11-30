@@ -1,0 +1,81 @@
+function x=wlRecon(W,dj,dt,arg1,arg2,arg3);
+%function x=wlRecon(W,dj,dt,mother,wlopt);
+%function x=wlRecon(W,dj,dt,srange,mother,wlopt);
+%
+% Reconstruct a time series from a non-orthogonal basis
+% Suitable for use with real-valued time series only
+% (For applicability to complex time-series remove the
+%  real() constrain in the main equation)
+%
+% Input parameters
+%   W       Wavelet transform
+%   dj      Scale resolution
+%   dt      Time resolution
+%   srange  (opt) Scale range for reconstruction
+%   mother  Mother wavelet
+%   wlopt   Wavelet options
+%
+% Output
+%   x       Time series (possibly band-pass filtered)
+%
+
+% Determine input parameters
+bandpass=0;
+if (nargin<6)
+    mother=arg1;
+    wlopt=arg2;
+else
+    srange=arg1;
+    mother=arg2;
+    wlopt=arg3;
+    
+    if (~isempty(srange))
+        s0=srange(1);
+        J=srange(2);
+        bandpass=1;
+    end;
+end;
+
+% Obtain data parameters
+N=size(W,2);
+
+% Determine scale
+if (~bandpass)
+	% Calculate scale range
+	s0=2*dt;
+	J=ceil((1/dj)*log2(N*dt/s0));    
+end;
+j=0:J;
+scale=s0.*2.^(j*dj)';
+
+% Reduce W to that of 'scale'
+if (bandpass)
+    % Calculate full scale as relating to W
+    Ws0=2*dt;
+	WJ=ceil((1/dj)*log2(N*dt/Ws0));
+    Wj=0:WJ;
+    Wscale=Ws0.*2.^(Wj*dj)';
+    
+    % Reduce W scale size from Wscale to that of 'scale'
+    WSstart=find(Wscale>=scale(1)); WSstart=WSstart(1);
+    WSend=find(Wscale>=min(scale(length(scale)),Wscale(length(Wscale)))); WSend=WSend(1);
+    W=W(WSstart:WSend,:);
+end;
+
+% Determine frequency range
+halflength=floor(N/2);
+omega=[(2*pi*(0:halflength)/(N*dt)) (-(2*pi*((halflength+1):(N-1)))/(N*dt)) ]';
+
+% Obtain wavelet parameters
+wl_mother=['wl_' mother];
+wlp_mother=['wlp_' mother];
+[wlparam]=feval(wlp_mother,omega,scale,dt,dj,wlopt{:});
+psi0=feval(wl_mother,0,0);
+
+size(W)
+size(scale)
+
+% Reconstruct time-series
+for n=1:N
+    x(n,1)=(dj*sqrt(dt)/(wlparam.Cg*psi0))*sum(real(W(:,n))./sqrt(scale));
+end;

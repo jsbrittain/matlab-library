@@ -1,0 +1,58 @@
+function mt_psp_acomp(sp,params,maxf,logplot)
+%
+%
+% Takes an cell-array of `sp' and `params' as input and overlays with
+% errorbars.
+%
+
+% Check input parameters
+if (~exist('maxf'))
+    maxf=500;
+end;
+if (~exist('logplot'))
+    logplot=true;
+end;
+
+% Plot parameters
+col=[160 160 255; 255 160 160; 160 255 160; ]/255;
+col2='brgy';
+confscaling=1.96;
+alphalevel=0.6;
+
+
+
+% Prepare plot
+hold('on');
+
+% Recurse datasets, plot confidence limits
+for ind=(length(sp):-1:1)
+    
+    switch (logplot)
+        case true,
+            conf_lower=10*(log10(sp{ind})-confscaling*sqrt(1./params{ind}.L)/2);
+            conf_upper=10*(log10(sp{ind})+confscaling*sqrt(1./params{ind}.L)/2);
+        case false,
+            conf_lower=10.^(log10(sp{ind})-confscaling*sqrt(1./params{ind}.L)/2);
+            conf_upper=10.^(log10(sp{ind})+confscaling*sqrt(1./params{ind}.L)/2);
+    end;
+    
+    % Confidence intervals
+    h=fill([params{ind}.freqs fliplr(params{ind}.freqs)],[conf_lower; flipud(conf_upper)]',col(ind,:));
+    set(h,'linestyle','none'); alpha(h,alphalevel);
+end;
+
+% Recurse datasets, plot mean spectra
+for ind=(length(sp):-1:1)
+    switch (logplot)
+        case true,
+            mdat=10*log10(sp{ind});
+        case false,
+            mdat=sp{ind};
+    end;    
+    % Overlay mean ERP
+    h=plot(params{ind}.freqs,mdat,col2(ind));
+    set(h,'linewidth',2);
+end;
+
+% Close plot editing
+hold('off');

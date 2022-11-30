@@ -1,0 +1,19 @@
+function ch = SONChanFindTitle( fid, str, casesensitive )
+
+if (~exist('casesensitive'))
+    casesensitive = [];
+end;
+if (isempty(casesensitive))
+    casesensitive = true;
+end;
+
+chanlist = SONChanList( fid );
+if (casesensitive)
+    ch = find( strcmp({chanlist.title},str), 1, 'first' );
+else
+    ch = find( strcmpi({chanlist.title},str), 1, 'first' );
+end;
+
+if ~isempty( ch )
+    ch = chanlist(ch).number;
+end;

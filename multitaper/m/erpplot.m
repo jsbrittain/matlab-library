@@ -1,0 +1,214 @@
+function h=erpplot(time,dat,individual,confscaling,smoothing,colstr,opt_str)
+%function erpplot(erptime,epochs,{individual/stddev},confscaling,smoothing,colstr,opt_str)
+%
+%
+% If `dat' is a vector, interpret as mean and take `individual' parameter
+% as `stddev/sqrt(L)' (if individual is numeric).  This vector remains scaled
+% by confscaling in the routine.
+%
+%function erpplot(erptime,epochs,{individual/stddev},confscaling,smoothing,colstr,opt_str)
+
+% Don't even attempt to display nothing
+if (isempty(dat))
+    h=0;
+    return;
+end;
+
+% Parse options string
+if (~exist('opt_str'))
+    opt_str = '';
+end;
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'a'                    % Rectify channels
+            facealpha = str2num(optarg);
+            if (isempty(facealpha))
+                facealpha = [];
+                warning([' Invalid face alpha value (a' optarg '), resorting to deafult.']);
+            end;
+        case 'o'                    % Plot axis origin lines
+            plotaxisorigin = logiacl(str2num(optarg));
+            if (isempty(plotaxisorigin))
+                plotaxisorigin = [];
+                warning([' Invalid plot axis origin value (o' plotaxisorigin '), resorting to deafult.']);
+            end;
+        case 'b'                    % Baseline subtract trials
+            [optarg1,optarg2]=strtok( optarg, ',' );
+            baseline = [];
+            baseline(1) = str2num(optarg1);
+            baseline(2) = str2num(optarg2);
+            if (length(baseline)~=2)
+                error([' Incorrect baseline correction range (b' optarg ').']);
+            end;
+    end;
+end;
+
+% Check input parameters
+if (~exist('confscaling'))
+    confscaling=[];
+end;
+if (~exist('individual'))
+    individual=[];
+end;
+if (~exist('smoothing'))
+    smoothing=[];
+end;
+if (~exist('colstr'))
+    colstr=[];
+end;
+if (~exist('facealpha'))
+    facealpha=[];
+end;
+if (~exist('plotaxisorigin'))
+    plotaxisorigin = [];
+end;
+if (~exist('baseline'))
+    baseline = [];
+end;
+
+% Check parameters
+if (isempty(confscaling))
+    confscaling=1.96;
+end;
+if (isempty(individual))
+    individual=false;
+end;
+if (isempty(smoothing))
+    smoothing=0;
+end;
+if (isempty(colstr))
+    colstr='b';
+end;
+if (isempty(facealpha))
+    facealpha=0;
+end;
+if (isempty(plotaxisorigin))
+    plotaxisorigin = true;
+end;
+
+% Interpret colour string
+linecol=colstr;
+switch (colstr)
+    case 'b',       % Blue
+        confcol=[179 199 255]/255;
+    case 'r',       % Red
+        confcol=[255 179 179]/255;
+    case 'g',       % Green
+        confcol=[190 255 179]/255;
+    case 'y',       % Yellow
+        confcol=[255 254 179]/255;
+    case 'k',       % Black
+        confcol=[131 135 147]/255;
+    case 'm',       % Blue
+        confcol=[179 199 255]/255;
+    case 'c',       % Cyan
+        confcol=[255 179 179]/255;
+    case 'k',       % Black
+        confcol=[ 5 0 50  50]/255;
+    case 'w',       % White
+        confcol=[200 200 200]/255;
+    otherwise
+        warning(' ERP-plot ');
+end;
+
+% Preprocess data
+dat=squeeze(dat);
+if (size(dat,1)==1)     % Tranpose if squeeze compresses single epoch to row vector
+    dat=dat.';
+end;
+if (size(time,2)==1)     % Tranpose if squeeze compresses single epoch to row vector
+    time=time.';
+end;
+
+% If data a single vector then interpret individual as std.dev
+if ((size(dat,2)==1) && (isnumeric(individual)))
+    halfband=confscaling*individual;      % Can be scalar or vector
+    individual=false;
+end;
+
+% Baseline trials
+if (~isempty(baseline))
+    % Find baseline time
+    btime = dsearchn(time',baseline');
+    % Baseline individual trials
+    for ind=(1:size(dat,2))
+        % Zero mean trials
+        dat(:,ind) = dat(:,ind) - mean(dat(btime(1):btime(2),ind));
+    end;
+end;
+
+% Smooth epochs (NB: Data truncated to remove edge effects)
+if (smoothing>0)
+    % Smooth individual trials
+    for ind=(1:size(dat,2))
+        dat(:,ind)=smooth(dat(:,ind),smoothing);
+    end;
+    % Remove edge effect regions
+    time=time(smoothing:(end-smoothing+1));
+    dat=dat(smoothing:(end-smoothing+1),:);
+end;
+
+% Calculate mean ERP
+estimation_method = 0;
+switch (estimation_method)
+    case 0,     % Mean
+        mdat=mean(dat,2);
+    case 1,     % Robust mean (per sample point)        %% WARINING: STD OUT WITH THIS OPTION
+        mdat = zeros(size(dat,1),1);
+        X = zeros(1,size(dat,2));
+        for n = (1:size(dat,1))
+            try
+                b = robustfit(X,dat(n,:));
+            catch
+                b = mean(dat(n,:));
+            end;
+            mdat(n) = b(1);
+        end;
+    case 2,     % Trim-mean                             %% WARINING: STD OUT WITH THIS OPTION
+        mdat = trimmean(dat,5,2);       % Throw away 5% and average over second dimension
+end;
+if (~exist('halfband'))
+    stddat=std(dat,[],2);
+    L=size(dat,2);
+    halfband=confscaling*stddat/sqrt(L);
+else
+    if (smoothing>0)
+        halfband=halfband(smoothing:(end-smoothing+1),:);
+    end;
+end;
+
+% Prepare subplot
+hold('on');
+
+% Plot individual trials
+if (individual)
+    h=plot(time,dat);
+    set(h,'color',[1 1 1]*0.7);
+end;
+
+% Plot confidence intervals
+h(2)=fill([time fliplr(time)],[mdat-halfband; flipud(mdat+halfband)]',confcol);
+set(h(2),'linestyle','none'); set(h(2),'facealpha',0.7);
+
+% Overlay mean ERP
+h(1)=plot(time,mdat,linecol);
+set(h(1),'linewidth',2);
+
+% Provide axes origin
+if (plotaxisorigin)
+    plot(time([1 end]),[0 0],'k');
+    ylims=ylim;
+    plot([0 0],ylim,'k');
+    ylim(ylims);
+end;
+
+% Format axes
+xlim(time([1 end]));
+
+% Return plot handles if requested
+if (nargout==0)
+    clear('h');
+end;

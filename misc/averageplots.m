@@ -1,0 +1,74 @@
+function averageplots( ah, newh )
+%function averageplots( ah, newh )
+%
+% Takes the handles of a series of axes that are assumed to contain data
+% from different subjects / conditions where each has been constructed
+% identically. This function then takes the data from each (assuming object
+% handles are in a consistent order between axes), extracts the data per
+% object and constructs a new (grand average) axes at `newh'
+%
+%function averageplots( ah, newh )
+
+% Initialise variables
+dat = {};
+
+% Get data from plots
+for an = (1:length(ah))
+    % Object handles
+    oh = get(ah(an),'children');
+    % Recurse objects
+    for on = (1:length(oh))
+        % Get object type
+        switch (get(oh(on),'Type'))
+            case {'line','patch'},          % Line / patch
+                dat{an,on} = get(oh(on),'YData');
+            case 'hggroup',                 % Barchart
+                sh = get(oh(on),'children');
+                for sn = (1:length(sh))
+                    dat{an,on}{sn} = get(sh(sn),'YData');
+                end;
+            case 'image',                   % Image
+                dat{an,on} = get(oh(on),'CData');
+            otherwise
+                error('Unknown object type');
+        end;
+    end;
+end;
+
+% New subplot (can be separate figure)
+subplot(newh); cla;
+
+% Copy an existing axis
+copyobj( get(ah(1),'children'), newh );
+set(newh,'ydir',get(ah(1),'ydir'));
+
+% Object handles
+oh = get(newh,'children');
+% Recurse objects
+for on = (1:length(oh))
+    % Get object type
+    switch (get(oh(on),'Type'))
+        case 'line',        % Line
+            set(oh(on),'YData',mean(cat(1,dat{:,on}),1));
+        case 'patch',       % Patch (e.g. fill)
+            set(oh(on),'YData',mean(cat(2,dat{:,on}),2));
+        case 'hggroup',     % Barchart
+            sh = get(oh(on),'children');
+            alldata = cat(1,dat{:,on}); newbar = [];
+            %for sn = (1:length(sh))
+                %set(sh(sn),'XData',get(sh(sn),'XData'),'YData',mean(cat(3,alldata{:,sn}),3));
+                sn=1;
+                newbar = mean(cat(3,alldata{:,sn}),3);
+            %end;
+            % Delete old bars and redraw
+            oldx = get(sh(1),'XData');
+            delete(oh(on)); hold('on');
+            bar( oldx(2,:), newbar(2,:) );
+        case 'image',       % Image
+            set(oh(on),'CData',mean(cat(3,dat{:,on}),3));
+    end;
+end;
+
+% Post-formatting
+axis('tight');
+

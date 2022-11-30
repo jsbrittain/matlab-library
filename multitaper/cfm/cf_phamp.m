@@ -1,0 +1,90 @@
+function params = cf_phamp( preprocdata, trimlevel, bincount, permutation_count )
+%
+%
+% Most preprocessing and amplitude analysis done on 'x', whereas 'y'
+% provides the phase comparitor.
+%
+%
+
+% Expand proprocessed data to (local) workspace
+struct2vars( preprocdata );
+
+% Reset severe deflections to mean and smooth
+ifxh(ifxh>(2*passbandx(2))) = mean(ifxh);
+ifxh = smooth(ifxh,smoothing);
+
+%% Analyse TACS data, then randomly permute phase and continue re-analysing
+
+% Reset phase
+yfh = hilbert(yf);
+yfh = smooth(yfh, smoothing);
+
+% Reserve memory
+rmag = zeros(permutation_count+1, bincount);
+rmagsd = rmag; rif = rmag; rcount = rif;
+
+% Corresponding Phase vector
+phaseangle = (0:(bincount-1))/bincount*2*pi - pi;
+
+% Compute phase angle difference (and quantize)
+anglediff = angle( xfh./yfh );
+anglegrid = round( (anglediff+pi)/2/pi*bincount );
+anglegrid(anglegrid==bincount) = 0;                     % Wrap first/last half-elements together
+
+% Mean amplitude per angle
+for n = (0:(bincount-1))
+    rmag(1,n+1) = trimmean( magxh(anglegrid==n), trimlevel );
+    rmagsd(1,n+1) = std( magxh(anglegrid==n) );
+    rif(1,n+1) = trimmean( ifxh(anglegrid==n), trimlevel );
+    rcount(1,n+1) = sum(anglegrid==n);
+end;
+
+%% Permutation testing
+
+for k = (2:(permutation_count+1))
+    
+    % Display progress
+    disp([' Permutation trial ' num2str(k-1) ' of ' num2str(permutation_count) ]);
+    
+    % Replace with random TACS data
+    switch ( 6 )
+        case 0,     % Random TACS channel
+            preprocdata_shuffle = cf_preproc( preprocdata.x, randn(size(preprocdata.y)), preprocdata.passbandx, preprocdata.passbandy, preprocdata.dropoff, preprocdata.rate, preprocdata.amp_norm_secs, preprocdata.xMagThreshold, preprocdata.smoothing );
+        case 1,     % Sinusoid TACS channel
+            preprocdata_shuffle = cf_preproc( preprocdata.x, sin( 2*pi*mean(passbandy)*(0:length(preprocdata.y)-1)/rate + (2*pi*rand(1)-pi) ), preprocdata.passbandx, preprocdata.passbandy, preprocdata.dropoff, preprocdata.rate, preprocdata.amp_norm_secs, preprocdata.xMagThreshold, preprocdata.smoothing );
+        case 3,     % Phase shuffled data
+            preprocdata_shuffle = cf_preproc( preprocdata.x, phaserandomise( preprocdata.y ), preprocdata.passbandx, preprocdata.passbandy, preprocdata.dropoff, preprocdata.rate, preprocdata.amp_norm_secs, preprocdata.xMagThreshold, preprocdata.smoothing );
+        case 4,     % Random Ax versus new sinusoidal TACS
+            preprocdata_shuffle = cf_preproc( randn(size(preprocdata.x)), sin( 2*pi*mean(passbandy)*(0:length(preprocdata.y)-1)/rate + (2*pi*rand(1)-pi) ), preprocdata.passbandx, preprocdata.passbandy, preprocdata.dropoff, preprocdata.rate, preprocdata.amp_norm_secs, preprocdata.xMagThreshold, preprocdata.smoothing );
+        case 5,     % Random Ax versus sinusoidal TACS
+            preprocdata_shuffle = cf_preproc( randn(size(preprocdata.x)), preprocdata.y, preprocdata.passbandx, preprocdata.passbandy, preprocdata.dropoff, preprocdata.rate, preprocdata.amp_norm_secs, preprocdata.xMagThreshold, preprocdata.smoothing );
+        case 6,     % Unlinked Ax with random phase TACS ( baseline data )
+            preprocdata_shuffle = cf_preproc( preprocdata.preprocdata0.x, sin( 2*pi*mean(passbandy)*(0:length(preprocdata.y)-1)/rate + (2*pi*rand(1)-pi) ), preprocdata.passbandx, preprocdata.passbandy, preprocdata.dropoff, preprocdata.rate, preprocdata.amp_norm_secs, preprocdata.xMagThreshold, preprocdata.smoothing );
+    end;
+    params_shuffle = cf_phamp( preprocdata_shuffle, trimlevel, bincount, 0 );
+    
+    % Populate local variables
+      rmag(k,:) = params_shuffle.rmag;
+    rmagsd(k,:) = params_shuffle.rmagsd;
+       rif(k,:) = params_shuffle.rif;
+    rcount(k,:) = params_shuffle.rcount;
+    
+end;
+
+%% Populate parameters structure
+
+params.phaseangle                 = phaseangle;
+params.rmag                       = rmag(1,:);
+params.rmagsd                     = rmagsd(1,:);
+params.rif                        = rif(1,:);
+params.rcount                     = rcount(1,:);
+params.perm.rmag                  = rmag(2:end,:);
+params.perm.rmagsd                = rmagsd(2:end,:);
+params.perm.rif                   = rif(2:end,:);
+params.perm.rcount                = rcount(2:end,:);
+params.settings.amp_norm_secs     = amp_norm_secs;
+params.settings.permutation_count = permutation_count;
+params.settings.bincount          = bincount;
+
+% Display update
+disp('done.');

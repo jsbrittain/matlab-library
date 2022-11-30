@@ -1,0 +1,50 @@
+function sp = phase_consistency( dat, rate, window, opt_str )
+%
+% Complex phase spectrum for a single channel
+%
+% FFT method
+%
+
+% Parameter defaults
+maxf = rate/2;          % Maximum analysis frequency
+
+% Reshape input
+dat = dat(:);
+wnd = round(window*rate);       % samples
+trials = floor(length(dat)/wnd);
+dat = dat(1:trials*wnd);
+
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'f'                    % Maximum analysis frequency
+            maxf=str2num(optarg);
+            if (isempty(maxf))
+                error(['Error in option argument -- f' optarg]);
+            end;
+        otherwise
+            error(['Unknown option -- ' opt]);
+    end;
+end;
+
+% Determine frequency range and maximum frequency
+if (maxf~=0)
+    freqs=rate*[0:wnd/2]/wnd;
+    fmin=2;                 % Remove DC component
+    fmax=min(floor(wnd/2+1),find(abs(freqs-maxf)==min(abs(freqs-maxf)))); % pts
+    freqs=freqs(fmin:fmax);
+else
+    freqs=rate*[0:(wnd/2) (-ceil(wnd/2-1)):-1]/wnd;
+    fmin=1; fmax=padduration;
+end;
+fcount=fmax-fmin+1;
+
+% Recurse trials
+for ind = (1:trials)
+    tt = (ind-1)*wnd+(1:wnd);
+    fdat = fft( dat(tt) );
+    sp(:,ind) = fdat(;
+end;

@@ -1,0 +1,101 @@
+function  [ epochs, erptime, ix ] = mt_timenorm_epochs(dat, rate, trig_start, trig_end, opt_str )
+%function  [ epochs, erptime, ix ] = mt_timenorm_epochs(dat, rate, trig_start, trig_end, opt_str )
+%
+% Time-base normalise data epochs (by frequency domain zero-padding)
+%
+% Input parameters
+%       dat         Data vector
+%       rate        Sampling rate
+%       trig_start  Start triggers (points)
+%       trig_end    End triggers (points)
+%       opt_str     Options string
+%                       n           Power normalise segments (also turns zero mean on)
+%                       N<x>        Pad to length N
+%                       m<min,max>  Minimum and maximum epoch length included (msecs)
+%                       z           Zero mean epochs
+%
+% Output parameters
+%       epochs      Time-base normalised epochs
+%       erptime     ERP time in relative time-base
+%       epochN      Original epoch length N (samples) [takes rejected trials into account]
+%
+%function  [ epochs, erptime, ix ] = mt_timenorm_epochs(dat, rate, trig_start, trig_end, opt_str )
+
+% Default options
+N           = [];
+minN        = 0;
+maxN        = Inf;
+powernorm   = false;
+zeromean    = false;
+
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'n'                    % Power normalise
+        	powernorm = true; zeromean = true;
+	    case 'N'                    % Pad to length N
+        	N = str2num(optarg);
+        case 'm'                    % Min / max epoch length
+            [minN,maxN] = strtok(optarg,',');
+            minN = round( str2num(minN)*1000/rate );
+            maxN = round( str2num(maxN)*1000/rate );
+        case 'z'                    % Zero mean epochs
+            zeromean = true;
+    end;
+end;
+
+% Truncate trigger list within min/max limits
+dur = trig_end - trig_start + 1;
+ix = ((dur>=minN) & (dur<=maxN));
+trig_start = trig_start(ix);
+trig_end   = trig_end(ix);
+dur = dur(ix);
+
+% Compute defaults
+if (isempty(N))
+    N = max(dur);
+    maxN = N;
+end;
+M = size(dat,2);
+
+% Check input parameters
+if (N < maxN)
+    error(' Pad length smaller than maximum permitted epoch length.');
+end;
+
+% Reserve memory space
+epochs = zeros(N,M,length(trig_start));
+
+% Recurse trials
+for n = (1:size(epochs,3))
+
+    % Isolate epoch
+    trange = (trig_start(n):trig_end(n));
+    
+    % Recurse channels
+    for m = (1:size(epochs,2))
+
+        % Extract channel data
+        dat1 = dat(trange,m);
+        
+        % Zero mean
+        if (zeromean)
+            dat1 = dat1 - mean(dat1);
+        end;
+
+        % Power normalise (req. for conf. limits)
+        if (powernorm)
+            dat1 = dat1/sqrt(mean(dat1.^2));
+        end;
+
+        % Zero pad in freq domain
+        epochs(:,m,n) = mt_zeropad_freq( dat1.', N ).';
+
+    end;
+end;
+
+% Specify ERP time
+erptime = (0:(N-1))/(N-1);

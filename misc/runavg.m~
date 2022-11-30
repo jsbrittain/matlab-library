@@ -1,0 +1,25 @@
+function runavg = runavg( data, windowSize )
+%
+% This function is more efficient for long windowSize arguments than
+% Matlab's 'filter' routine.
+%
+%
+
+% Halve averaging window since we a
+windowSize = windowSize/2;
+
+% Sum and subtract (forward)
+runavg = cumsum(data)/windowSize;
+runavg(windowSize+1:end) = runavg(windowSize+1:end) - runavg(1:end-windowSize);
+% Correct weighting on edge (beginning) samples
+runavg(1:windowSize) = (runavg(1:windowSize)*windowSize)./(1:windowSize)';
+
+% Sum and subtract (backwards)
+data=fliplr(flipud(runavg));                    % Flip running-average
+runavg = cumsum(data)/windowSize;
+runavg(windowSize+1:end) = runavg(windowSize+1:end) - runavg(1:end-windowSize);
+% Correct weighting on edge (end) samples
+runavg(1:windowSize) = (runavg(1:windowSize)*windowSize)./(1:windowSize)';
+
+% Flip back
+runavg = fliplr(flipud(runavg));

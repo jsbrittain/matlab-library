@@ -1,0 +1,121 @@
+function [W,wlparam]=wlfTransform(x,dt,df,arg1,arg2,arg3,arg4);
+%function [W,wlparam]=wlfTransform(x,dt,df,[frange],opt,mother,wlopt);
+%
+% Wavelet transform using frequency notation
+%
+% Parameters
+%   x           Time series
+%   dt          Time-resolution
+%   df          Frequency-resolution (as a Fourier period)
+%                   For logarithmic plot, 1/(scales/octave), i.e. 1/(20)
+%   frange      (opt) Frequency range [fmin fmax] ([]=default)
+%   opt         Analysis options
+%                   p - zero pad to power of 2
+%                   l - Linear frequency scale (frange required)
+%                   n - power normalise
+%   mother      Mother wavelet as a string
+%   wlopt       Options for the mother wavelet
+%               (Passed as a cell array, i.e.: {opt1,opt2,opt3,...})
+%
+% Mother wavelets (with options)
+%   'dog'       {m(m'th derivative)}
+%   'morlet'    {f0(centre frequency in rad/sec)}
+%   'morse'     {beta, gamma, k(order)}
+%
+%function [W,wlparam]=wlfTransform(x,dt,df,[frange],opt,mother,wlopt);
+
+% Define default input conditions
+limits=0;
+f_max=-1;
+
+% Determine input parameters
+if (nargin<7)
+    opt=arg1;
+    mother=arg2;
+    wlopt=arg3;
+else
+    if (~isempty(arg1))
+        if (length(arg1)~=2)
+            error('Argument ''frange'' must contain only two elements, [fmin, fmax]');
+        else
+            limits=1;
+            frange=[arg1(1) arg1(2)];
+            f_min=arg1(1);
+            f_max=arg1(2);
+        end;
+    else
+        frange=[];
+    end;
+    opt=arg2;
+    mother=arg3;
+    wlopt=arg4;
+end;
+
+% Default set all options
+linearscale=0;
+
+% Parse options string
+options=deblank(opt);
+opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'l'                    % Linear scaling, pass on parameter
+            linearscale=1;
+            if (~limits)
+                f_min=df;
+                f_max=1/(2*dt);
+                limits=1;
+            end;
+    	otherwise
+            opt_str=[opt_str ' ' opt];
+    end;
+end;
+
+% Obtain wavelet parameters
+wlf_mother=['wlf_' mother];
+wlp_mother=['wlp_' mother];
+[wlparam]=feval(wlp_mother,wlopt{:});
+dj=df;
+
+% Perform wavelet transform (using scale parameters)
+if (limits)
+    if (linearscale)
+        % Send scale range to wlTransform
+        srange=1./(f_min:df:f_max);             % Inverse frequency range = period range
+        srange=srange/wlparam.fourier_factor;   % Fourier period -> scale
+        if (length(srange)==1)
+            srange(2)=0;                        % Set J to zero if only one frequency specified
+        end;
+    else
+        % Frequency to scale conversion
+        s_max=1./(wlparam.fourier_factor*f_min);
+        s_min=1./(wlparam.fourier_factor*f_max);
+        dj=df;
+        
+        % Convert min frequency to max scale
+        s0=s_min;
+        J=ceil((1/dj)*log2(s_max/s0));
+        
+        % Perform scale-based wavelet transform
+        srange=[s0 J];
+    end;
+    [W,wlparam]=wlTransform(x,dt,dj,srange,opt_str,mother,wlopt);
+else
+    % Perform scale-based wavelet transform
+    [W,wlparam]=wlTransform(x,dt,dj,opt_str,mother,wlopt);
+end;
+
+% Calculate Fourier period for each scale
+period=wlparam.fourier_factor*wlparam.scale;
+wlparam.freqs=1./period;
+
+% Convert coi from scale to frequency
+wlparam.coi=[Inf (1./(wlparam.fourier_factor*wlparam.coi(wlparam.coi>0))) Inf];
+
+% Return frequency related parameters
+wlparam.df=df;
+wlparam.linearscale=linearscale;
+wlparam.frange=frange;
+wlparam.opt=opt;

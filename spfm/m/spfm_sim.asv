@@ -1,0 +1,139 @@
+function sim=spfm_sim(neurons,secs,dt,init);
+%function sim=spfm_sim(neurons,secs,dt,init);
+%
+% Sigma Pulse Frequency Modulation (SPFM) Network Simulator
+%
+% Input sequence to neurons may consist of independent Gaussian white noise
+% and synaptic connections from other neurons.  Synaptic connections are
+% modelled as pulse inputs of a specified magnitude and width.
+%
+% Input parameter
+%       neurons     Array structure containing neuron model parameters and
+%                   connectivity patterns.
+%                       .tau        Time constant
+%                       .v0         Reset value
+%                       .th         Threshold value
+%                       .mu         Mean of Gaussian white noise input
+%                       .sigma      Std.dev. of Gaussian white noise input
+%                       .synapse{}  Array structure of synaptic connections
+%                           .neuron Post-synaptic neuron
+%                           .mag    Pulse magnitude
+%                           .width  Pulse width
+%       secs        Duration of simulation (secs)
+%       dt          Sampling interval
+%       init        Startup period (secs) to allow divergence of neurons (default: 0secs)
+%
+% Output parameter
+%       sim         Array structure containing output parameters.
+%                       .neuron{}   Structure array of neuron output parameters
+%                           .spikes Spike train
+%                           .v      Membrane potential fluctuations
+%                       .time       Time vector
+%                       .secs       Duration of the simulation (secs)
+%                       .dt         Sampling interval
+%                       .runtime    Computation time of the simulation (secs)
+%
+% Additional output parameters in debug mode (set internally)
+%       sim.neurons{}.x             Sum of synaptic inputs
+%       sim.neurons{}.connections   Array of pre-synaptic sources [neuron synapse]
+%
+% Based on the sigma encoder described in
+%   D.M. Halliday (1998) "Generation and characterization of correlated
+%   spike trains". Computers in Biology and Medicine (28) pp.143-152
+%
+%function sim=spfm_sim(neurons,secs,dt,init);
+
+% Check input parameters
+if (~exist('init'))
+    init=0;
+end;
+
+% Global parameters
+debug=logical(1);       % Debug mode
+
+% Display progress
+disp('SPFM Network Simulator');
+disp('  Initialising');
+
+% Simulation parameters
+tic;
+N=secs/dt;
+time=[0:N]*dt;
+M=length(neurons);
+trange=[1:(init/dt+N)];
+Nprime=length(trange);
+
+% Initialise encoders
+for m=1:M
+    % Initialise output spike train
+    sim.neurons{m}.spikes=[];
+    % Initialise output membrane fluctuations
+    sim.neurons{m}.v=zeros(Nprime+1,1);
+    sim.neurons{m}.v(1)=neurons{m}.v0;
+    if (debug), sim.neurons{m}.x=zeros(Nprime,1); end;
+    % Ensure synapse structure present
+    if (~isfield(neurons{m},'synapse'))
+        neurons{m}.synapse={};
+    end;
+end;
+
+% Determine neural connectivity (synapse field must be initialised first)
+for m=1:M
+    % Recurse other neurons seeking source synapses
+    neurons{m}.connections=[];
+    for ind=[1:(m-1) (m+1):M]
+        for k=1:length(neurons{ind}.synapse)
+            if (neurons{ind}.synapse{k}.neuron==m)
+                neurons{m}.connections=[neurons{m}.connections; ind k];
+            end;
+        end;
+    end;
+end;
+
+% Run simulation
+disp('  Running simulation');
+for n=trange       % Step through time
+    % Display progress
+    if (mod(n,Nprime/100)==0)
+        disp(['    ' num2str(100*n/Nprime) '% complete.']);
+    end;
+    % Traverse neurons
+    for m=1:M
+        % Run encoder
+        sim.neurons{m}.v(n+1)=spfm_encoder(sim.neurons{m}.v(n),x,neurons{1}.tau,dt);
+        % Check for threshold crossing
+        if (sim.neurons{m}.v(n+1)>neurons{m}.th)
+            sim.neurons{m}.v(n+1)=sim.neurons{m}.v(n+1)-neurons{m}.th;
+            sim.neurons{m}.spikes=[sim.neurons{m}.spikes; (n+1)*dt];%)+(neurons{m}.th-sim.neurons{m}.v(n))/(sim.neurons{m}.v(n+1)-sim.neurons{m}.v(n))];
+        end;
+    end;
+end;
+
+% Remove initialisation period from output
+if (init>0)
+    trange=(init/dt)+1+[0:N];
+    for m=1:M
+        sim.neurons{m}.v=sim.neurons{m}.v(trange);
+        if (debug)
+            sim.neurons{m}.x=sim.neurons{m}.x(trange(1:end-1));
+        end;
+        sim.neurons{m}.spikes=sim.neurons{m}.spikes(sim.neurons{m}.spikes>=init)-init+dt;
+    end;
+end;
+
+% Output common parameters
+sim.time=time;
+sim.secs=secs;
+sim.dt=dt;
+
+% Output additional debug parameters
+if (debug)
+    sim.debug=debug;
+    for m=1:M
+        sim.neurons{m}.connections=neurons{m}.connections;
+    end;
+end;
+
+% Finish
+disp('  Simulation complete.');
+sim.runtime=toc;

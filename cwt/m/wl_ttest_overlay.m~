@@ -1,0 +1,15 @@
+function wl_ttest_overlay( time, freq, p, alpha )
+
+% Check input arguments
+if (~exist('alpha'))
+    alpha = [];
+end;
+
+% Default parameters
+if (isempty(alpha))
+    alpha = 0.05;
+end;
+
+% Overlay
+hold('on');
+contour(p<0.05,

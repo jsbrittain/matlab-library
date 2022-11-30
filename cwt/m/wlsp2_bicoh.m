@@ -1,0 +1,121 @@
+function [Wsp,wlparam,cl]=wlsp2_bicoh(dat1,dat2,trig,offset,duration,rate,df,frange,opt_str,mother,wlopt,nco,ncy);
+%function [Wsp,wlparam,cl]=wlsp2_bicoh(dat1,dat2,trig,offset,duration,rate,df,frange,opt_str,mother,wlopt,nco,ncy);
+%
+% Spectrum wavelet analysis Type 2 using bicoherence single trial methods
+%
+% Calculate auto-spectra, cross-spectra, coherence and phase for
+% two channels.
+%
+% Recursive implementation
+%
+% Input parameters
+%   Data parameters
+%       dat1        Time series 1
+%       dat2        Time series 2
+%       trig        Trigger
+%       offset      Offset (ms)
+%       duration    Duration (ms)
+%       rate        Sampling rate
+%   Analysis parameters
+%       dt          Time resolution
+%       df          Frequency resolution
+%       frange      Frequency range (may be [] for defaults)
+%       opt_str     Options string (r0,r1,r2=rectify; p=pad with zeros)
+%   Wavelet parameters
+%       mother      Mother wavelet
+%       wlopt       Wavelet options
+%   Single trial coherence parameters
+%       nco         Number of oscillations per wavelet
+%       ncy         Number of cycles per integration window
+%
+% Ouput parameters
+%   Wsp - Spectral coefficients
+%       Col 1:  Auto-spectra ch.1
+%       Col 2:  Auto-spectra ch.2
+%       Col 3:  Cross-spectra
+%       Col 4:  Coherence
+%       Col 5:  Phase
+%
+%function [Wsp,wlparam]=wlsp2_bicoh(dat1,dat2,trig,offset,duration,rate,df,frange,opt_str,mother,wlopt,nco,ncy);
+
+% Parse options string
+details=0;
+options=deblank(opt_str);
+opt_str='';
+st_opt='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'd'                    % Display progress
+            st_opt=[st_opt ' d'];
+	    case 'r'                    % Rectify channels
+        	n=str2num(optarg);
+			if ((n<0) | (n>2))
+			    error(['Error in option argument -- r' optarg]);
+			end;  
+			if (n~=1)   % Rectify ch 1.
+			    dat1=abs(dat1);
+			end;  
+			if (n>=1)   % Rectify ch 2.
+			    dat2=abs(dat2);
+			end;
+        case 'w'
+            st_opt=[st_opt ' w'];
+        otherwise                   % Options for wavelet analysis
+            opt_str=[opt_str opt optarg ' '];
+    end;
+end;
+
+% Determine data parameters
+dt=1/rate;
+time=((offset*rate/1000):((offset+duration)*rate/1000));
+
+% Segregate data into active regions
+N=length(dat1);
+offset=offset*rate/1000;        % Convert ms -> samples
+duration=duration*rate/1000;    %
+trigstart=trig+offset;
+trigstart=trigstart((trigstart>0) & (trigstart<(N-duration-offset+1)));     % Remove incomplete segments
+trigcount=length(trigstart);
+for ind=1:trigcount
+    segdat1(:,ind)=dat1(trigstart(ind):(trigstart(ind)+duration));
+    segdat2(:,ind)=dat2(trigstart(ind):(trigstart(ind)+duration));
+end;
+segcount=trigcount;
+
+% Wavelet transform the individual segments
+A=1-exp(-2);                                                                % Significant gaussian area (arbitrary choice)
+x1=sqrt(2)*erfinv(A); w0=2*pi*nco/(2*x1); wlopt={w0};                       % Define w0 for morlet based on nco
+[W1,wlparam]=wlfTransform(segdat1(:,1),dt,df,frange,opt_str,mother,wlopt);  % Determine freqs
+Wsp=zeros(length(wlparam.freqs),length(time),5);
+opt_str=[opt_str st_opt];
+for seg=1:segcount
+    disp(['Wavelet Transform Segment ' int2str(seg) ' of ' int2str(segcount)]);
+    [W1,W2,wlparam,WCo,cl,S1,S2,S12]=wl_cohSingleTrial(segdat1(:,seg),segdat2(:,seg),dt,df,frange,opt_str,mother,wlopt,nco,ncy);
+    
+    % Recursively average spectra and coherence
+    Wsp(:,:,1)=(1/(seg+1))*(seg*Wsp(:,:,1)+S1);
+    Wsp(:,:,2)=(1/(seg+1))*(seg*Wsp(:,:,2)+S2);
+    Wsp(:,:,3)=(1/(seg+1))*(seg*Wsp(:,:,3)+S12);
+end;
+
+% Wavelet coherence
+warning off
+Wco=(abs(Wsp(:,:,3)).^2)./(Wsp(:,:,1).*Wsp(:,:,2));
+warning on
+Wco(isnan(Wco))=0;
+Wsp(:,:,4)=Wco;
+
+% Wavelet phase
+Wsp(:,:,5)=angle(Wsp(:,:,3));
+
+% Adjust confidence limits
+for ind=1:length(cl)
+    cl(ind).K=cl(ind).K*segcount;
+    if (cl(ind).K<=1)
+        cl(ind).coh95=1;
+	else
+        cl(ind).coh95=1-(0.05)^(1/(cl(ind).K-1));
+	end;
+end;

@@ -1,0 +1,57 @@
+function [sp11p,sp22p,sp12p,paramsp]=mt_pool(sp11,sp22,sp12,params);
+% function [sp11p,sp22p,sp12p,paramsp]=mt_pool(sp11,sp22,sp12,params);
+%
+% Pool multitaper estimates
+%
+% NOT ENTIRELY HAPPY WITH THIS IMPLEMENTATION - CHECK IT OVER
+%
+% Input parameters
+%       sp11        Cell array of auto-spectra for ch.1
+%       sp22        Cell array of auto-spectra for ch.2
+%       sp12        Cell array of cross-spectra
+%       params      Cell array of parameters
+%
+% Output parameters
+%       sp11p       Pooled spectrum ch.1
+%       sp22p       Pooled spectrum ch.2
+%       sp12p       Pooled cross-spectrum
+%       paramsp     Pooled parameters
+%
+% Does not support jackknife estimates, see mt_sp_jkpool.m
+%
+% function [sp11p,sp22p,sp12p,paramsp]=mt_pool(sp11,sp22,sp12,params);
+
+% Check input parameters
+J=length(params);
+if ((length(sp11)~=J) | (length(sp22)~=J) | (length(sp12)~=J))
+    error(' Input parameters of inconsistent cell array length.');
+end;
+
+% Check for jackknife results
+if (params{1}.jackknife)
+    warning(' Routine does not support jackknife parameters.');
+end;
+
+% Pool spectra
+Ltot=0;
+for ind=1:J
+    Ltot=Ltot+params{ind}.L;
+end;
+sp11p=zeros(size(sp11{1}));
+sp22p=zeros(size(sp22{1}));
+sp12p=zeros(size(sp12{1}));
+for ind=1:J
+    sp11p=sp11p+params{ind}.L.*sp11{ind}./Ltot;
+    sp22p=sp22p+params{ind}.L.*sp22{ind}./Ltot;
+    sp12p=sp12p+params{ind}.L.*sp12{ind}./Ltot;
+end;
+
+% Form parameters structure
+paramsp=params{ind};
+paramsp.L=Ltot;
+paramsp.L1=Ltot;
+paramsp.L2=Ltot;
+paramsp.L12=Ltot;
+paramsp.trialcount=Ltot;
+paramsp.qlags=[-floor(length(sp12p)/2):ceil(length(sp12p)/2-1)]*1000/paramsp.rate;
+paramsp.q=real(fftshift(ifft(sp12p)));

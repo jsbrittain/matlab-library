@@ -1,0 +1,20 @@
+function [f,amp,ph] = mt_freqfit_disjoint( x, fs, flist, duration )
+
+% Preprocessing
+dur = duration*fs/1000;
+x = x(1:floor(length(x)/dur));
+x = reshape( x, dur, floor(length(x)/dur) );
+
+% 
+f = zeros(1,size(x,2));
+amp = zeros(length(flist),size(x,2));
+ph = amp;
+for k = (1:size(x,2))
+    [f(k),amp(:,k),ph(:,k)] = mt_freqfit( x(:,k), fs, flist );
+end;
+
+% Determine peak of average amplitude spectrum
+amp = mean( amp, 2 );
+ph = mean( exp(1i*ph), 2 );
+[~,ix] = max( amp );
+f = flist( ix );

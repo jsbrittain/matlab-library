@@ -1,0 +1,45 @@
+function kf_psp_b(sp,params,label);
+%function kf_psp_b(sp,params,[label]);
+%
+% Kalman-Fourier plotting routine for auto-spectra ch.2
+%
+% Input parameters
+%       sp          Spectral matrix
+%       params      Parameters structure
+%       label       (opt) Additional label
+%
+%function kf_psp_b(sp,params,[label]);
+
+% Construct label if absent
+if (~exist('label'))
+    label=kf_label(params);
+end;
+
+% Extract spectra
+flen=size(sp,1);
+fbb=10*log10(reshape(double(sp(:,2,:)),flen,params.M));
+
+% Determine x-axis and label
+if (isfield(params,'xorder'))
+    xorder=params.xorder;
+    xwhat=params.xlabel;
+else
+    xorder=1:params.M;
+    xwhat='TRIAL';
+end;
+
+% Plot spectra
+if (false)
+    surface(xorder,params.freqs,fbb,'edgecolor','none');
+    xlim([min(xorder) max(xorder)]);
+    ylim([params.freqs(1) params.freqs(end)]);
+    zlim([min(min(fbb)) max(max(fb))]);
+    view([140 50]);
+else
+    imagesc(xorder,params.freqs,fbb);
+end;
+xlabel(xwhat);
+ylabel('FREQ (Hz)');
+zlabel('dB');
+title(['fb ' label]);
+set(gca,'ydir','normal');

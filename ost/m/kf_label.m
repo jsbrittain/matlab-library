@@ -1,0 +1,52 @@
+function label=kf_label(params);
+%function label=kf_label(params);
+%
+% Generate label for KF plots
+%
+% Input parameter
+%       params      Parameters structure
+%
+%function label=kf_label(params);
+
+% Tracking or smoothing
+if (params.smooth)
+    label='(smoothing';
+else
+    label='(tracking';
+end;
+
+% Process noise parameter
+if (params.Q==0)
+%    label=[label ' non-adaptive'];
+%else
+    switch (params.method)
+        case 0      % null
+            label=[label ' NULL'];
+        case 1      % kf             (freq-domain)
+            label=[label ' KF Q=' num2str(params.Q) '%'];
+        case 2      % kf-log         (ln-domain)
+            label=[label ' KFLOG Q=' num2str(params.Q)];
+        case 3      % exp-decay      (freq-domain)
+            label=[label ' EXP \Delta=' num2str(params.Q)];
+        case 4      % sliding window (freq-domain)
+            label=[label ' WND K=' int2str(params.Q)];
+        case 5      % EXPERIMENTAL METHODS
+            label=[label ' ' num2str(params.root) '-ROOT Q=' num2str(params.Q)];
+        case 6      % kf-log         (ln-domain; FULL COVAR)
+            label=[label ' KFLOG-ADAPTIVE'];
+        otherwise error(' Unknown analysis method');
+    end;
+end;
+
+% Multitaper options
+if (isfield(params,'NW'))
+    label=[label ', MTM NW=' num2str(params.NW)];
+end;
+
+% Tidy-up
+label=[label ')'];
+
+% Add user defined description
+if (isfield(params,'what'))
+    label=[label ': ' params.what];
+end;

@@ -1,0 +1,119 @@
+function [shannon,shannonnout] = shannonx_epochs(data,dt,bins,process,offset,rectify)
+%
+% cross-shannon entropy (asymmetrical)
+%
+%   data        Data matrix (ch,time,epoch)
+%   process     Processing operation (0=none; 1=mean subtract segments; 2=detrend)
+%   offset      Plot offset (msecs)
+%   rectify     Rectify data (plot only)
+%
+
+% Mean subtract epochs
+for ch=1:size(data,1)
+    for ind=1:size(data,3)
+        data(ch,:,ind)=data(ch,:,ind)-mean(data(ch,:,ind));
+    end;
+end;
+
+lim=max(abs(data(:)));%/5;
+xout=[-1:2/bins:1]*lim;
+trange=(1:dt:(size(data,2)-dt));
+
+shannonnout = zeros(length(xout)-2,length(trange));
+
+% Time segmentation
+ind2=1;
+for tt=trange
+    
+    for ch=(1:2)
+    
+        % Recurse epochs
+        nout{ch}=0;
+        for ind=(1:size(data,3))
+            edat=data(ch,(tt:(tt+dt)),ind);
+            xx=(1:length(edat));
+            switch (process)
+                case 1, 
+                    edat=edat-mean(edat);
+                case 2,
+                    edat=edat-polyval(polyfit(xx,edat,1),xx);
+            end;
+            [n{ch,ind2,ind},xout]=hist(edat,xout);
+            nout{ch}=nout{ch}+n{ch,ind2,ind};
+        end;
+        
+        nout{ch}=nout{ch}(2:(end-1));
+        
+        nout{ch}=nout{ch}/sum(nout{ch});        % -> PDF
+        pdf(:,ind2)=nout{ch};
+        
+        nout{ch}(nout{ch}==0) = 1;
+        shannonnout(:,ind2)=nout{ch};
+        
+    end;
+    
+    % Cross-Shannon entropy
+    shannon(ind2,1) = -sum(nout{1}.*log2(nout{2}));
+    shannon(ind2,2) = -sum(nout{2}.*log2(nout{1}));
+    
+    % Increment index
+    ind2=ind2+1;
+end;
+
+% Jackknife confidence limits
+N=size(n,2);
+% for ch=1%(1:2)
+%     for ind2=(1:size(n,1))
+%         for ind1=(1:size(n,2))
+%             psi=zeros(size(n{ch,1,1}));
+%             for ind3=[(1:ind1-1) ((ind1+1):size(n,2))]
+%                 psi=psi+n{ch,ind2,ind3};
+%             end;
+%             psi=psi/sum(psi); psi(psi==0)=1;
+%             sh=-sum(psi.*log2(psi));                    % Delete-one estimate
+%             pv(ind2,ind1)=N*shannon(ind2,1)-(N-1)*sh;     % Pseudovalue
+%         end;
+%     end;
+%     for ind2=(1:size(n,1))
+%         jkm(ind2)=mean(pv(ind2,:));
+%         jkv(ind2)=sum((pv(ind2,:)-jkm(:,ind2)).^2)/(N-1);
+%     end;
+% end;
+
+% Display results
+figure; tt=(1:size(data,2))+offset;
+subplot(4,1,1); plot(tt,squeeze(data(1,:,:))); axis tight; hold on;
+                h=plot(tt,squeeze(mean(data(1,:,:),3)),'w'); set(h,'linewidth',2);
+                h=plot(tt,squeeze(mean(data(1,:,:),3)),'k'); set(h,'linewidth',1);
+                title('EPOCHS');
+subplot(4,1,2); if (rectify)
+                    plot(tt,squeeze(mean(abs(data(1,:,:)),3)),'k'); axis tight;
+                else
+                    plot(tt,squeeze(mean(data(1,:,:),3)),'k'); hold('on');
+                    h=plot(tt,squeeze(mean(data(1,:,:),3))-1.96*std(data(1,:,:),[],3)/sqrt(N));
+                    set(h,'color',[1 1 1]*0.8);
+                    h=plot(tt,squeeze(mean(data(1,:,:),3))+1.96*std(data(1,:,:),[],3)/sqrt(N));
+                    set(h,'color',[1 1 1]*0.8);
+                    axis('tight');
+                end;
+                title('MEAN RESPONSE');
+subplot(4,1,3); plot(dt/2+[1:dt:size(data,2)-dt]-offset,shannon(:,1),'k'); hold on;
+%                 h=plot(dt/2+[1:dt:size(data,2)-dt]-offset,shannon(:,1)-1.96*sqrt(jkv/N));
+%                 set(h,'color',[1 1 1]*0.8);
+%                 h=plot(dt/2+[1:dt:size(data,2)-dt]-offset,shannon(:,1)+1.96*sqrt(jkv/N));
+%                 set(h,'color',[1 1 1]*0.8); xlabel('OFFSET (MSECS)');
+%                 axis tight; title('SHANNON ENTROPY (SLIDING WINDOW)');
+% subplot(4,1,4); plot(dt/2+[1:dt:size(data,2)-dt]-offset,shannon(:,2),'k'); hold on;
+%                 h=plot(dt/2+[1:dt:size(data,2)-dt]-offset,shannon(:,2)-1.96*sqrt(jkv/N));
+%                 set(h,'color',[1 1 1]*0.8);
+%                 h=plot(dt/2+[1:dt:size(data,2)-dt]-offset,shannon(:,2)+1.96*sqrt(jkv/N));
+%                 set(h,'color',[1 1 1]*0.8); xlabel('OFFSET (MSECS)');
+%                 axis tight; title('SHANNON ENTROPY (SLIDING WINDOW)');
+for ind=(1:4)
+    subplot(4,1,ind); ylims=ylim;
+    hold('on'); plot([0 0],ylims,'k');
+end;
+
+% Statistical test
+%theta0=mean(shannon(3:40));         % baseline
+%Z=sqrt(N)*(jkm-theta0)./sqrt(jkv);

@@ -1,0 +1,152 @@
+function [sp11,sp22,sp12,params]=mt_sp_jkpool(sp11,sp22,sp12,params,sp11a,sp22a,sp12a,paramsa,final);
+%function [sp11,sp22,sp12,params]=mt_sp_jkpool([sp11,sp22,sp12,params],sp11a,sp22a,sp12a,paramsa,final);
+%
+% Pooled multitaper jackknife results
+%
+% Operates recursively with a set of spectral results from mt_sp or mt_sp2.
+% In the absence of previous pooled results, a new set are created.
+% Pseudo-values substituted for single-taper estimates.
+%
+% An optional 'final' logical value may be passed to prevent jackknife
+% calculations before further multitaper results are included.  This
+% parameter may only be specified in the presence of pooled and new
+% measurement arguments.
+%
+% Input parameters
+%       sp11        Recursive pooled auto-spectrum ch.1
+%       sp22          | auto-spectrum ch.2
+%       sp12          | cross-spectrum ch.1,2
+%       params        | parameters structure
+%       sp11a       New multitaper auto-spectrum ch.1
+%       sp22a         | auto-spectrum ch.2
+%       sp12a         | cross-spectrum ch.1,2
+%       paramsa       | parameters structure
+%       final       Final set of measurements (logical, default: 1)
+%
+% Output parameters
+%       sp11        Updated auto-spectrum ch.1
+%       sp22        Updated auto-spectrum ch.2
+%       sp12        Updated cross-spectrum ch.1,2
+%       params      Updated jackknife parameters structure
+%
+%function [sp11,sp22,sp12,params]=mt_sp_jkpool([sp11,sp22,sp12,params],sp11a,sp22a,sp12a,paramsa,[final]);
+
+% Check input parameters
+if (nargin==5)
+    error(' Parameter ''final'' may only be specified in the presence of all other parameters');
+end;
+if ((nargin~=4) & (nargin~=8) & (nargin~=9))
+    error(' Incorrect number of input parameters');
+end;
+if (~exist('final')), final=logical(1);
+else                  final=logical(final);
+end;
+
+% Determine input parameters
+if (~isfield(params,'bootstrap'))
+    bootstrap=logical(0);
+else
+    bootstrap=params.bootstrap;
+end;
+
+% Check if first measurement
+if (nargin==4)  % Pass measurements straight out as first pooled set (do nothing)
+    if (params.jackknife)
+        % Remove redundant fields
+        params=rmfield(params,'pv11');          % Pseudo-values
+        params=rmfield(params,'pv22');          %  |
+        params=rmfield(params,'pv12');          %  |
+        % Clear fields to be processed later on
+        params=rmfield(params,'jk11');          % Delete-on-estimates
+        params=rmfield(params,'jk22');          %  |
+        params=rmfield(params,'jk12');          %  |
+        % Display progress
+        disp('New pooled jackknife set created.');
+    end;
+    return;
+else
+    % Display progress
+    disp('Processing new pooled spectra...');
+end;
+
+% Produce running spectral estimate
+sp11=(params.trialcount*sp11+paramsa.trialcount*sp11a)/(params.trialcount+paramsa.trialcount);
+sp22=(params.trialcount*sp22+paramsa.trialcount*sp22a)/(params.trialcount+paramsa.trialcount);
+sp12=(params.trialcount*sp12+paramsa.trialcount*sp12a)/(params.trialcount+paramsa.trialcount);
+
+% Concatenate jackknife parameters
+if (params.jackknife)
+    params.p11=[params.p11 paramsa.p11];        % Eigenspectra
+    params.p22=[params.p22 paramsa.p22];        %  |
+    params.p12=[params.p12 paramsa.p12];        %  |
+    params.dk11=[params.dk11 paramsa.dk11];     % Weighting scheme
+    params.dk22=[params.dk22 paramsa.dk22];     %  |
+    params.dk12=[params.dk12 paramsa.dk12];     %  |
+end;
+
+% Update parameters
+params.trialcount=params.trialcount+paramsa.trialcount;
+params.L1=params.L1+paramsa.L1;
+params.L2=params.L2+paramsa.L2;
+params.L12=params.L12+paramsa.L12;
+if (params.jackknife)
+    params.jkcount=params.jkcount+paramsa.jkcount;
+    fcount=size(params.dk11,1);
+else
+    fcount=length(params.freqs);
+end;
+
+% Re-calculate jackknife results
+if (final & jackknife)
+    % Display progress
+    disp('Finalising pooled jackknife results...');
+    % Reserve variable space
+    params.jk11=zeros(fcount,params.jkcount);
+    params.jk22=zeros(fcount,params.jkcount);
+    params.jk12=zeros(fcount,params.jkcount);
+    % Extract single taper estimates (use pseudo-values)
+    p11=params.p11;
+    p22=params.p22;
+    p12=params.p12;
+    % Calculate multitaper spectra
+    sp11=sum(params.dk11.*p11,2)./sum(params.dk11,2);
+    sp22=sum(params.dk22.*p22,2)./sum(params.dk22,2);
+    sp12=sum(params.dk12.*p12,2)./sum(params.dk12,2);
+    % Construct delete-one-estimates
+    pdk11=sum(params.dk11.*p11,2); dk11tot=sum(params.dk11,2);
+    pdk22=sum(params.dk22.*p22,2); dk22tot=sum(params.dk22,2);
+    pdk12=sum(params.dk12.*p12,2); dk12tot=sum(params.dk12,2);
+    for taper=1:params.jkcount
+        tapers=[1:taper-1 taper+1:params.jkcount];
+        params.jk11(:,taper)=(pdk11-params.dk11(:,taper).*p11(:,taper))./(dk11tot-params.dk11(:,taper));
+        params.jk22(:,taper)=(pdk22-params.dk22(:,taper).*p22(:,taper))./(dk22tot-params.dk22(:,taper));
+        params.jk12(:,taper)=(pdk12-params.dk12(:,taper).*p12(:,taper))./(dk12tot-params.dk12(:,taper));
+    end;
+    % Perform bootstrap estimation if required
+    if (bootstrap)
+        params=mt_bootstrap(params.p11,params.p22,params.p12,[1 length(params.freqs)],params,params.B);
+    end;
+    % Log-spectra
+    meanjk=mean(log10(params.jk11),2); meanjk=meanjk(:,ones(1,params.jkcount));
+    params.jk11v=(params.jkcount-1)*mean((log10(params.jk11)-meanjk).^2,2);
+    meanjk=mean(log10(params.jk22),2); meanjk=meanjk(:,ones(1,params.jkcount));
+    params.jk22v=(params.jkcount-1)*mean((log10(params.jk22)-meanjk).^2,2);
+    meanjk=mean(log10(params.jk12),2); meanjk=meanjk(:,ones(1,params.jkcount));
+    params.jk12v=(params.jkcount-1)*mean(abs(log10(params.jk12)-meanjk).^2,2);
+    % Coherence
+    [coh,params]=jk_sp2_coh(sp11,sp22,sp12,params);     % Computed: .jkcohv
+    params.coh=coh; clear('coh');
+    % Jackknife phase
+    [ph,params]=jk_sp2_ph(sp12,params);                 % Computed: .jkphv
+    params.ph=ph; clear('ph');
+    % Additional parameters
+    params.L=min(cat(3,params.L1,params.L2,params.L12),[],3);
+else
+    % Reset jackknife variane to prevent interpretation of incomplete results
+    params.L=zeros(fcount,1);
+    params.jkcohv=0;
+    params.jkphv=0;
+end;
+
+% Display progress
+disp('done.');

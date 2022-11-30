@@ -1,0 +1,33 @@
+
+
+x = randn(1e5,1);       % Random noise
+
+alpha = 0.5;            % ( x LEADS y ); so that x occurs BEFORE y
+y = alpha*circshift( x, 10 ) + randn(1e5,1);
+
+figure;
+subplot(211);
+plot( x ); hold on; plot( y, 'r' );
+
+% Multivariate AR fit
+
+[w,A,C,SBC,FPE,th] = arfit([x y],20,20);
+A = reshape(A,2,2,size(A,2)/2);
+
+A = [ -0.85 0.75; -0.65 -0.55 ];
+C = ones(2);
+
+S = varspectrum(A,freqs,rate,C);
+
+subplot(223);
+plot( freqs, log(squeeze(S(1,1,:))), 'b', freqs, log(squeeze(S(2,2,:))), 'r' );
+legend('x','y'); title('Spectra');
+
+% Granger
+rate = 100; freqs = (0:rate/2);
+[Iyx,Ixy] = vargranger( -A, freqs, rate, C );
+
+subplot(224);
+plot( freqs, Iyx, 'b', freqs, Ixy, 'r' );
+legend('y\rightarrow x','x\rightarrow y');
+title('Causality');

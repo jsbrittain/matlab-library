@@ -1,0 +1,17 @@
+function scalebar_horz(x,y,width,label);
+%
+% Add horizontal scale bar to a plot
+%
+% Input parameters
+%       x           Centre x co-ordinate
+%       y           Centre y co-ordinate
+%       width       Width of bar (in x-axis units)
+%       label       Text label (displayed in centre below)
+%
+
+hold('on');
+% Draw scalebar 
+plot(x+[-1 1]*width/2,y*[1 1],'color','k','linewidth',3);
+% Add label (string includes empty line to shift label down below scalebar)
+text(x,y,{'',label},'HorizontalAlignment','center');
+hold('off');

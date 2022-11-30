@@ -1,0 +1,318 @@
+
+<!-- saved from url=(0079)http://www.inversereality.org/tutorials/graphics%20programming/3dwmatrices.html -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+<meta name="description" content="Inverse Reality contains over 40 tutorials on many aspects of Game Programming. Webmaster is also available for questions.  Source code available for DJGPP, some include inline assembly">
+<meta name="keywords" content="Game, Programming, Input, Devices, Mouse, Keyboard, Interrupt, ISR, DMA, Sound, BETA, RealTime, Sound, FX, Mixing, Graphics, 3d, Real-Time, News, Chat, Room, Joystick, Assembly, C++, C, Inline, Algorithms, Math, Matrix, Linked, Lists, Structures, Classes, Files, PDF, Documents, Expansion, Pack, Inverse, Reality, DJGPP, GNU">
+<title>3d Transformations with Matrices</title>
+<script language="JavaScript" src="./3d Transformations with Matrices_files/script.js">
+</script>
+</head>
+<body background="./3d Transformations with Matrices_files/background5.jpg" text="white" link="white" vlink="#777777" onload="jumpBox(document.forms[0],&quot;../../&quot;);">
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+<tbody><tr><td><img src="./3d Transformations with Matrices_files/banner.gif" align="left"><img src="./3d Transformations with Matrices_files/3dtransformations.gif" align="right">
+</td></tr><tr><td align="right">
+<form><br clear="all">
+ <img src="./3d Transformations with Matrices_files/warp.gif"><img src="./3d Transformations with Matrices_files/spacer.gif" width="26" height="1"><br>
+ <select name="warpto" onchange="jumpBox(this.form,&quot;../../&quot;);">
+ <option value="BLANK">[  WarpMe  ]</option><option value="../../default.html">Main</option><option value="../../personal/personal.html">Personal</option><option value="../../">Tutorials</option><option value="../../projects/projects.html">Projects</option><option value="../../links/links.html">Links</option><option value="../../webrings/webring.html">WebRings</option><option value="../../files/filelist.html">Files</option><option value="../../bookreviews/bookreviews.html">Reviews</option><option value="../../banners/banners.html">Banners</option><option value="../../news/News.html">News</option><option value="../../feedback/Feedback.html">Feedback</option><option value="../../copyrights/copyrights.html">Copyrights</option><option value="mailto:deltener@mindtremors.com">Email</option><option value="../../mailing%20list/mailinglist.html">Subscribe</option><option value="../../help/help.html">Help</option><option value="../../cgi-bin/messageboard.pl?Mode=DisplaySubject">Message Board</option><option value="../../betatesting/betatesting.html">Beta Testing </option><option value="../../mission/mission.html">My Mission</option></select>
+</form></td></tr></tbody></table>
+
+
+<font size="+2">Intro</font><br>
+<img src="./3d Transformations with Matrices_files/brickdivider.jpg" width="50" height="3" align="top"><br><br>
+Now that we have our Point3d class created, let's start to cover the good stuff, 3d transformations!!  Before we get too far ahead of ourselves, we must go through some 3d concepts, then we'll discuss a helper class designed to make our code more readable and re-usable.  Remember the more re-usable we make our code, the less modifying we will have to do later, and chances are that we can use something we've already created instead of having to program somthing from scratch! Before you decide NOT to read this, grab a version of this tutorial in Adobe .PDF format <a href="http://www.inversereality.org/files/3dwmatrices.pdf">here</a><br><br>
+
+
+<font size="+2">Coordinate Systems</font><br>
+<img src="./3d Transformations with Matrices_files/brickdivider.jpg" width="190" height="3" align="top"><br><br>
+We will finally discuss what the extra members where of our Point3d class. If you were naughty and didn't read that tutorial first, catch up <a href="http://www.inversereality.org/tutorials/graphics%20programming/3dpoint.html">here</a>. Since we are doing all transformations manually, we have to give each object the ability to move within our world, while at the same time, have the camera (or player) move around in the same world.  In order to do this we have have an understanding of coordinate systems.  How we define objects within our world directly effects how we can use them.  How you develop your system is pretty much up to you, but here's how I'm doing it.  
+<br><br>
+
+<font size="+2">Local Coordinates</font><br>
+<img src="./3d Transformations with Matrices_files/brickdivider.jpg" width="170" height="3" align="top"><br><br>
+<table align="right" border="0" cellpadding="0" cellspacing="0">
+<tbody><tr><td><img src="./3d Transformations with Matrices_files/cuberotation.gif" align="right"></td></tr><tr><td><font size="-2"><center>A cube defined in its own<br>local coordinate system.</center></font>
+</td></tr></tbody></table>Any object that needs to move within the world (objects, players, etc) will be defined within its own local coordinate system.  In other words the center of the world (0,0,0) from the perspective of the object will be located in the exact middle of the object.  This makes local transformations like rotation extremely easy.  Since each object defined in this manor has its center at (0,0,0), it must be moved to its position in the world when we need it.  What's the point in having all objects located in one spot on the map, we have to spread them out!  This is one small downfall to creating locally defined objects, we must move them to their proper positions in our world every cycle.  Don't be too worried though, this will only become a problem if we start to have large quantities of these objects, and there are also ways of optimizing them to be very quick also!  <br><br>
+
+Let's turn our attention quickly to the rotating cube on the right.  Notice that all axes merge at its center.  When we do this type of transformations (local) we take the original points (lx,ly,lz) transform them, then store the new results in the world variables (wx,wy,wz).  This keeps the original points intact and loss of precision doesn't become a problem, more on this later. Now, lets see what we've covered as far as the contents of our Point3d class.<br><br>
+
+
+<table border="1" cellpadding="0" cellspacing="0" align="right">
+<tbody><tr><td><pre>lx,ly,lz,
+wx,wy,wz,
+ax,ay,az,
+sx,sy,sz,</pre></td>
+<td bgcolor="blue"><pre>lt;
+wt;
+at;
+st;
+</pre></td></tr></tbody></table><br>
+First off, all *t points are there solely for our 4x4 matrix operations to work correctly.  They seriously hold no real value, just to take up space!<br><br>
+
+<table border="1" cellpadding="0" cellspacing="0" align="left">
+<tbody><tr><td bgcolor="blue"><pre>lx,ly,lz,lt;</pre></td></tr><tr><td><pre>wx,wy,wz,wt;
+ax,ay,az,at;
+sx,sy,sz,st;</pre></td></tr></tbody></table>
+The local points (l*) are defined so that we can have individual objects rotate and move around in our world, interacting and reacting to stimulii.  It would be nearly impossible and extremely difficult to have objects do this without having them defined within their own local coordinate system.  Thank goodness we have them huh!?
+<br><br><br><br>
+
+<font size="+2">World Coordinates</font><br>
+<img src="./3d Transformations with Matrices_files/brickdivider.jpg" width="180" height="3" align="top"><br><br>
+
+<table align="right" border="0" cellpadding="0" cellspacing="0">
+<tbody><tr><td><img src="./3d Transformations with Matrices_files/cuberotation2.gif" align="right"></td></tr><tr><td><font size="-2"><center>Viewing the world from <br> a camera.</center></font></td></tr></tbody></table>
+We now need to create the ability for the user to move around in the world, tilting their head, looking left and right, spin while swimming and be able to step in any direction.  We can transform our existing coordinates the same way we did with the local ones and store them in a new variable to accomplish this task.  
+<table border="0" align="left" cellpadding="5">
+<tbody><tr><td>
+<table border="1" align="left" cellpadding="0" cellspacing="0">
+<tbody><tr><td><pre>lx,ly,lz,lt;</pre></td></tr><tr><td bgcolor="blue"><pre>wx,wy,wz,wt;</pre></td></tr><tr><td><pre>ax,ay,az,at;
+sx,sy,sz,st;</pre></td></tr></tbody></table></td></tr></tbody></table>
+
+
+The world points (w*) are defined to hold the these newly transformed coordinates.  We transform the world coordinates with what we want the camera to look at or in most cases, the user controls the camera movements.  One cool aspect of this step of transformations is that we can have the camera be the user or just as easily a 3rd perspective point of view which could be a custom configuration in the application!<br><br>In review, local transformations move an object along or around its own local coordinate system with its center being at (0,0,0).  Please note that not all objects need to have their centers at (0,0,0), but in order for the object to spin as in our little animation it must, otherwise it will appear to rotate around an invisible point, which may be what you want?! World transformations allow a user viewing system so that they can move in 6 degrees of freedom.  These ideologies may not make sence right now, but eventually you'll be able to make your own examples that make sence.  Now that we have an ok understanding of coordinate systems, lets start to get into the nitty gritty of how to make it happen!  As promised we will go through a small helper class that will make our code more re-usable and easier to read.<br><br><br>
+
+<font size="+2">The Matrix3d Class</font><br>
+<img src="./3d Transformations with Matrices_files/brickdivider.jpg" width="190" height="3" align="top"><br><br>
+
+Ahh yes, our little Matrix3d class.  The only real purpose it serves is to provide another layer of abstraction in our code and also to make things a little bit easier to read.  As you can see it is very small and very simple so lets take a quick look at our header file, and then dive into what it really does.<br><br>
+
+<table border="1" bgcolor="blue" cellpadding="0" cellspacing="0">
+<tbody><tr><td><pre>class Matrix3d
+{ public:
+  double Matrix[4][4];
+  Matrix3d();
+  void MatrixReset();
+  void MatrixIdentity();
+  void MatrixCopy(Matrix3d &amp;M);
+  void MatrixMult(Matrix3d &amp;M1,Matrix3d &amp;M2);
+};</pre></td></tr></tbody></table><br>
+The only actual data object we have is the two dimensional array of doubles.  How we construct our class is really arbitrary.  You might find it easier or faster to use longs with fixed point math, but then again that really depends on the level of precision you want.  For that reason I've built this class to use doubles for maximum precision (well it's up there).<br><br>
+
+
+
+<table border="1" bgcolor="blue" cellpadding="0" cellspacing="0" align="left">
+<tbody><tr><td>
+<pre>Matrix3d::Matrix3d()
+{ MatrixIdentity();
+}
+
+void Matrix3d::MatrixReset()
+{ for(int i=0;i&lt;4;i++)
+  { for(int j=0;j&lt;4;j++)
+	  {Matrix[i][j]=0;
+	  }
+  }
+}</pre></td></tr></tbody></table><br>
+As you can see, this class is a piece of cake!  
+<table border="1" bgcolor="black" align="right" cellpadding="0" cellspacing="0">
+<tbody><tr><td><center><img src="./3d Transformations with Matrices_files/zeromatrix.gif"></center>
+<font size="-2">The Zero 4x4 Matrix</font>
+</td></tr></tbody></table>
+
+Our constructor initializes our matrix to an identity matrix so that it is ready to be used by our transformation functions.  The Matrix Reset function simply fills in our matrix with all zeros.  As we are going through this class, start to visualize our 2 dimensional array more as a matrix instead of an array.  This will allow you to more easily grasp the concepts we are going through, matrices as a whole and the operations used for everything to work correctly.
+
+<br clear="all">
+<br><br>
+<table border="1" bgcolor="black" align="right" cellpadding="0" cellspacing="0">
+<tbody><tr><td><center><img src="./3d Transformations with Matrices_files/identitymatrix.gif"></center>
+<font size="-2">The Identity 4x4 Matrix</font>
+</td></tr></tbody></table>
+
+<table border="1" bgcolor="blue" cellpadding="0" cellspacing="0" align="left">
+<tbody><tr><td><pre>void Matrix3d::MatrixIdentity() 
+{ MatrixReset();  
+  Matrix[0][0]=Matrix[1][1]=
+  Matrix[2][2]=Matrix[3][3]=1;
+}</pre></td></tr></tbody></table><br>
+
+
+The MatrixIdentity function sets our matrix to all zeros, then sets it to the identity matrix, getting it ready for use in our transformation functions.
+<br clear="all"><br><br><br>
+
+<img src="./3d Transformations with Matrices_files/matrixexample1.gif" align="left" border="1">
+<br>
+And now a crash course in Matrix Multiplication!!  Before we dive into this problem there is a requirement that needs to be filled in order to even START our operations.  The rule is that the inside and outside dimensions must be equal. In our little example we have no problems since all matrices are 2x2.  Following this rule we could multiply a 3x5 by a 5x3 without any problems.  Notice how the actual multiplication takes place, look at the expanded form,we procede from left to right with the 1st matrix, and from top to bottom on the 2nd matrix, adding each element to get the result.  Look at step 1 where r1 is being calculated.  Realize that if we were using larger matrices we would simply repeat our pattern of multiplying the 1st element of A by the 1st of B, adding the quantity (2nd element of A multiplied by the 1st element of B, 1 row down).  This pattern is really easy to follow. 
+
+<br clear="all"><br><br>
+<table border="1" cellpadding="0" cellspacing="0" bgcolor="blue">
+<tbody><tr><td><pre>void Matrix3d::MatrixCopy(Matrix3d &amp;NewM)
+{ Matrix3d temp;
+  int i,j;
+  for(i=0;i&lt;4;i++)
+   {for(j=0;j&lt;4;j++)
+     {temp.Matrix[i][j]=(Matrix[i][0]*NewM.Matrix[0][j])+(Matrix[i][1]*NewM.Matrix[1][j])
+                        (Matrix[i][2]*NewM.Matrix[2][j])+(Matrix[i][3]*NewM.Matrix[3][j]);
+     }
+   }
+ for(i=0;i&lt;4;i++)
+  {Matrix[i][0]=temp.Matrix[i][0];
+   Matrix[i][1]=temp.Matrix[i][1];
+   Matrix[i][2]=temp.Matrix[i][2];
+   Matrix[i][3]=temp.Matrix[i][3];
+  }
+}</pre></td></tr></tbody></table><br>
+
+Having survived our crash course in Matrix Multiplication, this function should be pretty easy to read.  Since I realize how this may not appear that simple (it took me a while :) )
+<img src="./3d Transformations with Matrices_files/matrixconcatination.gif" align="right" border="1">
+I'll explain this function in the usual style.  Remember first that we are dealing with 4x4 matrices instead of the 2x2 in our above example.  We are simply making a routine to do the multiplication for us instead of writing it all out.  The matrix A in this example is the member of this class or this-&gt;Matrix if you don't get it, the B in this example would be the one passed as a parameter to our function or NewM.Matrix.  We first create a temp 4x4 matrix, wittingly named temp that we set everything into so we don't screw our operations up.  The second for loop simply copies temp into the member matrix named Matrix. The pretty little animation is another way of looking at this function, but if it screws you up, just look at the Matrix Multiplication example instead.  See that this function was named MatrixCopy.  It really multiplies the member matrix by a new matrix, and storing the result back into the member matrix.<br><br>
+<table bgcolor="blue" border="1" cellpading="0" cellspacing="0">
+<tbody><tr><td><pre>void Matrix3d::MatrixMult(Matrix3d &amp;M1,Matrix3d &amp;M2)
+{ Matrix3d temp;
+  int i,j;
+  for (i=0;i&lt;4;i++)
+   { for(j=0;j&lt;4;j++)
+      {temp.Matrix[i][j]=
+       (M2.Matrix[i][0]*M1.Matrix[0][j])+(M2.Matrix[i][1]*M1.Matrix[1][j])+
+       (M2.Matrix[i][2]*M1.Matrix[2][j])+(M2.Matrix[i][3]*M1.Matrix[3][j]);
+      }
+   }
+  for(i=0;i&lt;4;i++)
+   {M1.Matrix[i][0]=temp.Matrix[i][0];
+    M1.Matrix[i][1]=temp.Matrix[i][1];
+    M1.Matrix[i][2]=temp.Matrix[i][2];
+    M1.Matrix[i][3]=temp.Matrix[i][3];
+   }
+}</pre></td></tr></tbody></table><br>
+Now I think i've seen this function before.  The only difference between this function and MatrixCopy is that instead of putting the result back into the class Matrix, we put it back into the 1st parameter that was passed.  A in this example is M1 and B is M2. The hardest concept of this is really just the multiplication, but since we have our neeto functions we could really forget them if we wanted to.  I do want you to take a second to let this sink in because the more you understand these operations, the more successful you will be when you optimize it! Take a pee, pick your nose, go make a sandwich and come back!<br><br>
+Now that you've taken a little break, we can finally reward ourselves by getting into the functions that really do that real transformations!! As always, let's take a look at the header file to see if we should shout in the pain to come!<br><br><br>
+
+<font size="+2">The Th3dtran Class</font><br>
+<img src="./3d Transformations with Matrices_files/brickdivider.jpg" width="190" height="3" align="top"><br><br>
+
+Finally! Now we can get into the functions that actually transform our local coordinates into a world we can move through and interact with! You will also see how matrices play a crucial role in our operations. On to the header file!<br><br>
+
+<table bgcolor="blue" border="1" cellpadding="0" cellspacing="0">
+<tbody><tr><td><pre>
+class Th3dtran
+{ public:
+  Th3dtran();
+  ~Th3dtran();
+  void Init();
+  void Translate(float,float,float);
+  void Rotate(float,float,float);
+  void Scale(float);
+  Point3d ChangeLocalObject(Point3d &amp;p);
+  Point3d ChangeObjectPoint(Point3d &amp;p);
+	 
+  Matrix3d matrix,Rmat,rmatrix,objectmatrix;
+  char Local;
+};</pre></td></tr></tbody></table><br>
+Our class as a whole really isn't that complex.  We really only use 5 of the functions, the rest are used automatically.  We also have 4 copies of our helper class Matrix3d.  Two are used for Local and World transformations, and the other 2 are used in our functions instead of creating them on the fly every cycle.  We also have a flag telling our code wether we are doing Local or World transformations.  Five functions to make a 3d world, I TOLD you I would hook you up :) Let's get to business!<br><br>
+
+<table border="1" bgcolor="blue" cellpadding="0" cellspacing="0">
+<tbody><tr><td><pre>Th3dtran::Th3dtran()
+{ Init();
+  Local=1;
+}
+
+Th3dtran::~Th3dtran()
+{ 
+}
+
+void Th3dtran::Init()
+{ matrix.MatrixIdentity();
+  objectmatrix.MatrixIdentity();
+}</pre></td></tr></tbody></table><br>
+Here's the 3 functions that are used automatically.  Our constructor calls Init which simply initializes our two member matrices that are responsible for holding the Local and World transformations.  For now we have our destructor empty.  We will now cover the functions which will create a master transformation matrix out of our Local and World matrices.<br><br>
+
+<img src="./3d Transformations with Matrices_files/translationmatrix.gif" align="right" border="1">
+<table border="1" cellpadding="0" cellspacing="0" bgcolor="blue">
+<tbody><tr><td>
+<pre>void Th3dtran::Translate(float x,float y,float z)
+{ Rmat.MatrixIdentity();
+  Rmat.Matrix[3][0]=x;
+  Rmat.Matrix[3][1]=y;
+  Rmat.Matrix[3][2]=z;
+  if(Local)
+   { objectmatrix.MatrixCopy(Rmat);
+   }
+  else
+   { matrix.MatrixCopy(Rmat);
+   }
+}</pre></td></tr></tbody></table><br>
+We first reset our temp matrix Rmat (name has no importance) to the identity matrix. Remember that is when there are 1's diagnally, there's a picture at the top portion of this tutorial if you don't remember.  We then set the appropriate locations in our transformation matrix to how many units we want to translate.  We then use the MatrixCopy routine to multiply our translation matrix with the appropriate master matrix, objectmatrix used for Local transformations and just matrix for World transformations.  Remember that the difference, if we were translating at the Local level, an object would be moving around, whereas at the World level, WE are moving around!  There's a BIG difference!  This idea of creating a temp matrix set according to our transformations and then combining it with a master matrix is used throughout the other transformation functions.  Ok, let's see how many more times I can use the word <i>transformations</i>!<br><br>
+
+<img src="./3d Transformations with Matrices_files/rotationmatrix.gif" align="right" border="1">
+<table bgcolor="blue" border="1" cellpadding="0" cellspacing="0">
+<tbody><tr><td><pre>void Th3dtran::Rotate(float x,float y,float z)
+{ rmatrix.MatrixIdentity();
+  Rmat.MatrixIdentity();
+  Rmat.Matrix[1][1]=cos(x); Rmat.Matrix[1][2]=sin(x);
+  Rmat.Matrix[2][1]=-(sin(x)); Rmat.Matrix[2][2]=cos(x);
+  rmatrix.MatrixMult(rmatrix,Rmat);
+  Rmat.MatrixIdentity();
+  Rmat.Matrix[0][0]=cos(y);Rmat.Matrix[0][2]=-(sin(y));
+  Rmat.Matrix[2][0]=sin(y);Rmat.Matrix[2][2]=cos(y);
+  Rmat.MatrixMult(rmatrix,Rmat);
+  Rmat.MatrixIdentity();
+  Rmat.Matrix[0][0]=cos(z); Rmat.Matrix[0][1]=sin(z);
+  Rmat.Matrix[1][0]=-(sin(z)); Rmat.Matrix[1][1]=cos(z);
+  Rmat.MatrixMult(rmatrix,Rmat);
+
+  if(Local)
+   {objectmatrix.MatrixIdentity();
+    objectmatrix.MatrixCopy(rmatrix);
+   }
+  else
+   {matrix.MatrixCopy(rmatrix);
+   }
+}</pre></td></tr></tbody></table><br>
+We are doing exactly the same things as we did with the Translate function.  Here we combine each of the 3 seperate rotational transformation matrices with our temp matrix (Rmat), and then we finally combine that with the appropriate Local or World master matrix. One of my references states that we should do the z rotation first to align the 3d z axis with the 2d axis, but i've experimented and found it doesn't make any difference, hence why we are doing it x,y,z. Man this is easy!<br><br>
+
+<img src="./3d Transformations with Matrices_files/scalingmatrix.gif" align="right" border="1">
+<table border="1" cellpadding="0" cellspacing="0" bgcolor="blue">
+<tbody><tr><td><pre>void Th3dtran::Scale(float scale)
+{
+  Rmat.MatrixIdentity();
+  Rmat.Matrix[0][0]=scale;
+  Rmat.Matrix[1][1]=scale;
+  Rmat.Matrix[2][2]=scale;
+  if(Local)
+   { objectmatrix.MatrixCopy(Rmat);
+   }
+  else
+    {matrix.MatrixCopy(Rmat);
+    }
+}</pre></td></tr></tbody></table><br>
+By now our routine should be pretty simple to follow.  We create our master scaling matrix storing our scale factor appropriately. We then (big surprise) combine it with the appropriate master transformation matrix!! By now you should be wondering, what is this all leading to!!? I can finally answer that question. With these two functions!
+<br><br>
+
+
+<table bgcolor="blue" border="1" cellpadding="0" cellspacing="0">
+<tbody><tr><td><pre>Point3d Th3dtran::ChangeLocalObject(Point3d &amp;p)
+{ p.wx=(long)(p.ax*matrix.Matrix[0][0]+p.ay*matrix.Matrix[1][0]+
+              p.az*matrix.Matrix[2][0]+matrix.Matrix[3][0]);
+  p.wy=(long)(p.ax*matrix.Matrix[0][1]+p.ay*matrix.Matrix[1][1]+
+              p.az*matrix.Matrix[2][1]+matrix.Matrix[3][1]);
+  p.wz=(long)(p.ax*matrix.Matrix[0][2]+p.ay*matrix.Matrix[1][2]+
+              p.az*matrix.Matrix[2][2]+matrix.Matrix[3][2]);
+  return p;
+}
+
+Point3d Th3dtran::ChangeObjectPoint(Point3d &amp;p)
+{p.ax=(long)(p.lx*objectmatrix.Matrix[0][0]+p.ly*objectmatrix.Matrix[1][0]+(long)
+             p.lz*objectmatrix.Matrix[2][0]+objectmatrix.Matrix[3][0]);
+ p.ay=(long)(p.lx*objectmatrix.Matrix[0][1]+p.ly*objectmatrix.Matrix[1][1]+(long)
+             p.lz*objectmatrix.Matrix[2][1]+objectmatrix.Matrix[3][1]);
+ p.az=(long)(p.lx*objectmatrix.Matrix[0][2]+p.ly*objectmatrix.Matrix[1][2]+(long)
+             p.lz*objectmatrix.Matrix[2][2]+objectmatrix.Matrix[3][2]);
+ return p;
+}</pre></td></tr></tbody></table><br>
+Finally what makes it all work!  Both functions work on the same principle, ChangeLocalObject works on a World level, notice it assigns the world members of our point, while ChangeObjectPoint operates on a Local level, setting the aligned members of the point.  We pass each function a point and the code effectively Translates, Rotates and Scales according to what we inputed for the Scale Rotate and Scale functions.  Those 3 functions only created a master matrix but didn't change a point.  We now input a point (passed as a parameter) and effectvely MOVE it!! <br><br>
+<font size="+2">A little bit about precision loss</font><br>
+<img src="./3d Transformations with Matrices_files/brickdivider.jpg" width="290" height="3" align="top"><br><br>
+
+<i>By now you should be wondering if we HAVE to put our new points into a new member (ie the world members w*, and aligned a* etc).  Why not just have 4 items and modify these two functions to store into a temp point, then set our new point with the temp data, like we did in our matrix functions.  Well, you <b>could</b> do that if you desired, but you'd be running into precision loss issues.  I was actually wondering this myself so I did just what I stated above, making the appropriate changes to the code.  What I realized was that every movement we made to a point, we landed close to what the math calculated, but there was a difference (very minute) due to the fact we couldn't store all the fractional parts.  This error isn't noticable at all since we are basing our calculations from the original local coordiantes every cycle, BUT if we modify our code as stated, the error adds itself almost logorythmically since we are basing calculations from already erroneous data.  All points modified in this scheme will eventually be set to 0.  To prove that it just doesn't work, here's a neeto program to demonstrate the problem! <br><br>
+<a href="http://www.inversereality.org/files/precisionloss.zip">DEMO PROGRAM </a>!
+</i>
+
+<br><br>By now you should be thinking, ok this is pretty neet, i've got all my coordinates moved around, but they are still 3d coordinates?! How do I convert them into SCREEN coordinates?!! Glad you asked, Congratulations, you may now move onto the next tutorial :) If you have any question, comments, complaints, whatever! send me some
+<a href="http://www.inversereality.org/feedback/feedback.html">Feedback.</a>
+<br><br><br>
+<center>
+<img src="./3d Transformations with Matrices_files/branchdivider.gif" width="600" height="3"><br><br>
+<img src="./3d Transformations with Matrices_files/signature.gif">
+</center><br><br><br><br><br>
+
+</body></html>

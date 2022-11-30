@@ -1,0 +1,92 @@
+function [WCo,cl,wlparam]=wl_cohSingleTrialBins(dat1,dat2,dt,df,frange,opt,mother,wlopt,nco,ncy,fbin);
+%function [WCo,cl,wlparam]=wl_cohSingleTrialBins(dat1,dat2,dt,df,frange,opt,mother,wlopt,nco,ncy,fbin);
+%
+% Single trial coherence includes wavelet transforms of the two time series
+% This version segregates the wavelet transform based on a number of
+% frequency bins.  This allows a less memory intensive implementation when
+% analysing large datasets.
+%
+% Parameters
+%   x           Time series
+%   dt          Time-resolution
+%   df          Frequency-resolution (as a Fourier period)
+%   frange      (opt) Frequency range (may be empty)
+%   opt         Analysis options
+%                   p - zero pad to power of 2
+%                   l - Linear frequency scale (frange required)
+%                   w - Fixed integration window (default: freq dependent)
+%   mother      Mother wavelet as a string
+%   wlopt       Options for the mother wavelet
+%               (Passed as a cell array, i.e.: {1,2,3,...})
+%   nco         No. oscillations in wavelet
+%   ncy         No. oscillations in integration window
+%   fbin        Frequency segregation bin width (in Hz)
+%
+% NB: Morlet specific implementation (relating to w0 calculation)
+%
+%function [WCo,cl,wlparam]=wl_cohSingleTrialBins(dat1,dat2,dt,df,frange,opt,mother,wlopt,nco,ncy,fbin);
+
+% Check input parameters
+if (nargin<11)
+    error('Not enough input parameters');
+end;
+if (length(dat1)~=length(dat2))
+    error('Data vectors must be of the same length');
+end;
+
+% Parse options string
+fixed_window=0;
+options=deblank(opt);
+opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'w'                    % Fixed integration window
+            fixed_window=1;
+            opt_str=[opt_str ' ' opt];
+    	otherwise
+            opt_str=[opt_str ' ' opt];
+    end;
+end;
+
+% Determine frequency bin parameters
+fmin=frange(1);
+fmax=frange(2);
+fdiff=fmax-fmin;
+bincount=ceil(fdiff/fbin);
+ff=frange(1):df:frange(2);
+N=length(dat1);
+fN=length(ff);
+
+% Loop through frequency bins
+cl=[];
+for seg=1:bincount
+    % Determine frequency subrange
+    fsubstart=fmin+fbin*(seg-1);
+    fsubstop=fsubstart+fbin-df;
+    fsubrange=[fsubstart min(fsubstop,frange(2))];
+    
+	% Perform single trial coherence for a specified frequency bin
+    disp(['Frequency segmentation ' int2str(seg) '/' int2str(bincount)]);
+	[W1,W2,wlparam1,wlparam2,SubWCo,subcl]=wl_cohSingleTrial(dat1,dat2,dt,df,fsubrange,opt_str,mother,wlopt,nco,ncy);
+    
+    % Save coherence subrange to image file
+    save(['part' num2str(seg) '.mat'],'SubWCo');
+    cl=[cl subcl];
+end;
+
+% Combine subrange frequency components
+clear('W1','W2','SubWCo');
+WCo=[];
+for seg=1:bincount
+    load(['part' num2str(seg) '.mat'],'SubWCo');
+    WCo=[WCo; SubWCo];
+end;
+save('WCo','WCo');
+wlparam=wlparam1;
+
+% Determine confidence limit returns
+if (~fixed_window)
+    cl=cl(1);
+end;

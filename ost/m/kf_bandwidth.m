@@ -1,0 +1,73 @@
+function bandwidth=ramp_sp2bandwidth(width,duration,rate,w)
+%function bandwidth=ramp_sp2bandwidth(width,duration,rate,[w])
+%
+% Variable duration spectral bandwidth - returns a single value
+% May be called repeatedly for bandwidth tracking by changing the weights
+%
+% Input parameters
+%       width       Vector or scalar of width proportion
+%       duration    Vector of trial duration (msecs)
+%       rate        Sampling rate
+%       w           Custom weighting (useful for bandwidth tracking)
+%
+% Output parameter
+%       bandwidth   Bandwidth (method defined by internal flag)
+%
+%function bandwidth=ramp_sp2bandwidth(width,duration,rate,[w])
+
+% parameters
+bandwidth_method=1;     % 0-circular density; 1-half-power; 2-Parzen's area
+weighting_scheme=1;     % redundant if 'w' provided (0-uniform; 1-trial length)
+dp=2;                   % Accuracy of bandwidth estimate (decimal places)
+maxband=20;             % Highest bandwidth estimate (keep low for efficiency)
+
+% determine bandwidth
+df=10^-dp;
+freqs=0:df:maxband/2;
+maxdur=max(round(width.*duration*rate/1000));
+tapers=zeros(maxdur,length(duration));
+% time domain tapers
+for m=1:length(duration)
+    tapers(1:round(width.*duration(m)*rate/1000),m)=1;
+end;
+
+% conditioned time domain tapers
+tapers2=zeros(maxdur,1);
+ftapers=zeros(length(freqs),1);
+if (~exist('w'))
+    switch (weighting_scheme)
+        case 0,     % Uniform weighting
+            w=ones(size(duration));
+        case 1,     % Trial duration weighting
+            w=width.*duration*rate/1000;
+    end;
+end;
+w=w/sum(w);         % Ensure weights normalised
+for m=1:length(duration)
+    tapers2=tapers2+w(m)*tapers(:,m);
+end;
+
+% freq domain tapers
+for indf=1:length(freqs)
+    ftapers(indf)=abs(sum(tapers2.*exp(-i*2*pi*freqs(indf)*[0:(maxdur-1)]'/rate))/rate);
+end;
+
+% bandwidth determination
+switch (bandwidth_method)
+    case 0,         % Brillinger (circular density function)
+        ftapers=ftapers./sum([flipud(ftapers(2:end)); ftapers])/df;   % normalise
+        bandwidth=2*sqrt(2*pi*df*sum((1-cos(2*pi*[fliplr(-freqs(2:end)) freqs])').*[flipud(ftapers(2:end)); ftapers]))/2/pi; % +ve freqs, double for +/-ve
+    case 1,         % Half-power points
+        ftapers=ftapers/max(ftapers);                                          % normalise
+        bandwidth=2*freqs(min(find(abs(ftapers-0.5)==min(abs(ftapers-0.5)))));
+    case 2,         % Parzen's definition (equivalent area rectangle of same max height)
+        bandwidth=df*sum(abs([flipud(ftapers(2:end)); ftapers]))/ftapers(1);
+end;
+
+% check bandwidth
+if (bandwidth==0)
+    warning(' Bandwidth is zero - decrease frequency sampling interval (df)');
+end;
+if (bandwidth==2*freqs(end))
+    warning(' Bandwidth at upper limit - increase frequency range for sampling');
+end;

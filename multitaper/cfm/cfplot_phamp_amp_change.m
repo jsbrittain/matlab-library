@@ -1,0 +1,24 @@
+function cfplot_phamp_amp_change( phaseangle, rmag, permrmag, pvalue )
+
+% Get confidence interval quantile
+if (~exist('pvalue','var'))
+    pvalue = [];
+end;
+if (isempty(pvalue))
+    pvalue = 0.05;
+end;
+confint = icdf('norm',(1-pvalue/2),0,1);
+
+% Subtract mean of surrogates (+ve / -ve deflections can be asymmetrical)
+bar(phaseangle,(rmag-mean(permrmag,1))./mean(permrmag,1)); hold('on');
+plot(phaseangle,smooth((rmag-mean(permrmag,1))./mean(permrmag,1),5),'r'); xlim(phaseangle([1 end]));
+if (size(permrmag,1)>0)
+    %fill( [ phaseangle fliplr(phaseangle) ], [ -confint*std(permrmag,[],1) fliplr(confint*std(permrmag,[],1))], 'g', 'facecolor', [1 1 1]*0.8, 'facealpha', 0.8 );
+    permcol = (permrmag-repmat(mean(permrmag,1),size(permrmag,1),1))./repmat(mean(permrmag,1),size(permrmag,1),1);
+    fill( [ phaseangle fliplr(phaseangle) ], [ mean(permcol,1)-confint*std(permcol,[],1) fliplr(mean(permcol,1)+confint*std(permcol,[],1))], 'g', 'facecolor', [1 1 1]*0.8, 'facealpha', 0.8 );
+    if ( 0 )
+        permrmag = (permrmag-mean(permrmag(:)))/mean(permrmag(:));
+        plot( phaseangle, permrmag, '-' );
+    end;
+end;
+title('CHANGE IN TREMOR AMPLITUDE');

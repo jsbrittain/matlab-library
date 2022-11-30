@@ -1,0 +1,71 @@
+function [sp,params]=kftf_spm2w(dat1,dat2,trig,offset,duration,width,rate,seg_pwr,opt_str);
+%function [sp,params]=kftf_spm2w(dat1,dat2,trig,offset,duration,width,rate,seg_pwr,opt_str);
+%
+% Hybrid Kalman-Fourier analysis Time-Frequency (Type 2)
+%
+% Time-frequency analysis (perform analysis over offset sections of the
+% trials).
+%
+% Input parameters
+%       dat1            Data vector channel 1
+%       dat2            Data vector channel 2
+%       trig            Trigger times
+%       offset          Trial offset (portion of duration) (scalar or vector)
+%       duration        Trial duration (msec) (scalar or vector)
+%       width           Section width as a portion of duration (<=1)
+%       rate            Sampling rate
+%       seg_pwr         Segment power for Fourier transform
+%       opt_str         Options string
+%                           r<0|1|2>    Rectify channels
+%                           m<W>        Multitaper analysis (using W; default 2.5)
+%                           Q<q>        Process noise (default 0.1)
+%                           f<fmax>     Maximum frequency (default Nyquist)
+%                           s           Use Kalman smoother
+%                           k<n>        KF method (0-null,1-kf,2-kflog(default),3-ff)
+%                           j           Jackknife variance
+%
+% Output parameters
+%       sp              Matrix of spectral components, cols: (3rd dim are trials)
+%                           1           Auto-spectra ch.1
+%                           2           Auto-spectra ch.2
+%                           3           Cross-spectra ch.1,2
+%                           4           Coherence
+%       params          Parameters structure
+%
+% KF implementations
+%       null            Return periodogram estimates (parameters structure will not fully correlate)
+%       kf              Time-domain periodogram filtering (note distributional assumptions)
+%       kflog           Log-domain (nonlinear) filtering
+%       ff              Forgetting-factor (Q<%age> becomes delta(<1) value)
+%
+%function [sp,params]=kftf_spm2w(dat1,dat2,trig,offset,duration,width,rate,seg_pwr,opt_str);
+
+% Check input parameters
+if (nargin~=9)
+    error(' Incorrect number of input arguments');
+end;
+if (nargout~=2)
+    error(' Incorrect number of output arguments');
+end;
+
+% Determine data parameters
+sections=length(offset);
+
+% Convert msecs to samples
+offset=offset*rate/1000;
+duration=duration*rate/1000;
+% Ensure duration is a vector for recursion
+if (length(duration)~=length(trig))
+    duration=duration*ones(sections,1);
+end;
+
+% Perform KF-analysis within a time-slice
+for ind=1:sections
+    % Display progress
+    disp([]
+    % Calculate offset and duration vectors (converted to msecs)
+    offset2=round(offset(ind)*duration(ind))*1000/rate;
+    duration2=floor(width*duration(ind))*1000/rate;
+    % Perform analysis
+    [sp(:,:,:,ind),params]=kf_spm2w(dat1,dat2,trig,offset2,duration2,rate,seg_pwr,[opt_str ' n']);
+end;

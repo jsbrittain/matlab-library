@@ -1,0 +1,87 @@
+addpath(genpath('/home/jsb/Dropbox/Matlab/library'));
+addpath(genpath('c:/users/jsb/Dropbox/Matlab/library'));
+
+
+% Simulation parameters
+secs = 100;
+dt = 1e-3;
+rate = 1/dt;
+init = 2;
+
+% Common encoder parameters
+tau = 2.5e-2;
+th = 1;
+
+% Synchronisation level
+synchrony = 0.1;
+
+N = 100;
+unsync_cells = (1:N);
+sync_cells = [];
+for k = (1:floor(synchrony*N))
+    kk = randi(length(unsync_cells),1,1);
+    sync_cells = [ sync_cells unsync_cells(kk) ];
+    unsync_cells = unsync_cells([1:(kk-1) (kk+1):end]);
+end;
+
+muc = 1.02; sigmac = 0.065;
+mui = 0;%.1;%1.02;
+sigmai = 0;%.8;%0.065;
+
+% Run
+T = 10*rate;
+v = zeros(N,T); x = zeros(N,1);
+v(:,1) = rand(size(v(:,1)));
+firing = false(N,T);
+progress = 0; fprintf('\n Sim: ');
+for t = (1:T-1)
+    % Display progress
+    if (round(100*t/(T-1))>progress)
+        progress=round(100*t/(T-1));
+        %disp(['    ' int2str(progress) '% complete.']);
+        if ( mod(progress,10)==0 )
+            fprintf('%g',progress);
+        else
+            fprintf('.');
+        end;
+    end;
+    % Independent / synchronised input
+    x(unsync_cells) = muc+sigmac*randn(length(unsync_cells),1);
+    x(sync_cells)   = muc+sigmac*randn(1);
+    % Additional random input
+    x = x + mui+sigmai*randn(N,1);
+    % Euler forward step (1ms)
+    v(:,t+1) = (v(:,t)+(dt/tau)*x)/(1+dt/tau);
+    % Firing times
+    fired = v(:,t+1) > th;
+    v(fired,t+1) = v(fired,t+1) - th;
+    firing( fired, t+1 ) = true;
+end;
+output = mean( firing, 1 );
+fprintf(' %%\n');
+
+figure;
+subplot(5,5,[2:5 7:10 12:15 17:20]);
+    hold on;
+    for k = (1:N)
+        if (ismember(k,sync_cells))
+            colstr = 'r.';
+        else
+            colstr = 'k.';
+        end;
+        plot( find(firing(k,:)), k, colstr );
+    end;
+    title(['Mean firing rate: ' num2str(mean(mean(firing,2)*rate)) ' Hz']);
+    colormap(flipud(gray(2)));
+subplot(5,5,22:25);
+    %plot( smooth( output, 200 ) );
+    plot( smooth( mean(firing(unsync_cells,:),1), 200 ), 'k' ); hold on
+    plot( smooth( mean(firing(sync_cells,:),1), 200 ), 'r' );
+subplot(5,5,21);
+    if false && (exist('mt_sp0'))
+        [sp11,sp22,sp12,params]=mt_sp0(output,output,1000,rate,'W1');
+        plot( params.freqs, 10*log10(sp11), 'k' );
+    else
+        Hs = spectrum.welch('hamming',2048);
+        psd(Hs,output,'Fs',rate);
+    end;

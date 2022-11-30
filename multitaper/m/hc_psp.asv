@@ -1,0 +1,18 @@
+function hc_psp(hc,params);
+%function hc_psp(hc,params);
+%
+% Display normalised histogram count of occurances of significant
+% coherence over trials (MTM implementation)
+%
+% Input parameters
+%       hc          Normalised histogram count
+%       params      
+%
+%function hc_psp(hc,params);
+
+% Plot normalised histogram
+figure;
+plot(params.freqs,hc*100,'k');
+xlim([0 params.freqs(end)]); xlabel('FREQ (Hz)');
+ylim([0 100]); ylabel('%age');
+title('Percentage trials showing significant coherence');

@@ -1,0 +1,15 @@
+function nii_plot_sagittal(nii,threshold)
+%
+% Supplementary plot routine for Nifti Matlab toolbox
+%
+
+% Threshold image at zero
+img=nii.img;
+if (exist('threshold'))
+    img(img<threshold)=0;
+end;
+
+% 
+imagesc(fliplr(squeeze(mean(nii.img,1)))');
+colormap(gray(256));
+set(gca,'DataAspectRatio',);

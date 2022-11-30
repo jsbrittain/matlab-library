@@ -1,0 +1,17 @@
+function [Dpdf,Dparams,Dmax] = hmm_xod_gam(state)
+%function [Dpdf,Dparams,Dmax] = hmm_xod_gam(state)
+
+% Determine input arguments
+states = max(state);
+
+% Explicit state duration statement
+for k=(1:states)
+    state_start = find(diff(state==k)<0);
+    state_end = find(diff(state==k)>0);
+    state_start = state_start( state_start < state_end(end) );
+    state_end = state_end( state_end > state_start(1) );
+    
+    Dpdf{k} = @gampdf;
+    Dparams{k} = num2cell(gamfit( state_end - state_start ));
+    Dmax(k) = find((cumsum(gampdf([1:1:10000],Dparams{k}{:})) + gampdf(1,Dparams{k}{:}) ) > 0.999,1,'first');
+end;

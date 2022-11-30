@@ -1,0 +1,31 @@
+function cfplot_phamp_amp_change( phaseangle, rmag, permrmag, pvalue )
+
+if (~exist('pvalue'))
+    pvalue = [];
+end;
+if (isempty(pvalue))
+    pvalue = 0.05;
+end;
+confint = icdf('norm',(1-pvalue/2),0,1);
+
+switch (1)
+%     case 0,         % Subtract mean of deviations (net zero)
+%         bar(phaseangle,(rmag-mean(rmag))); hold on;
+%         plot(phaseangle,smooth([rmag-mean(rmag)],5),'r'); xlim(phaseangle([1 end]));
+%         if (size(permrmag,1)>0)
+%             fill( [ phaseangle fliplr(phaseangle) ], [ -2*std(permrmag,[],1) fliplr(2*std(permrmag,[],1))], 'g', 'facecolor', [1 1 1]*0.8, 'facealpha', 0.8 );
+%         end;
+%         title(['CHANGE IN TREMOR AMPLITUDE (PERMUTATION COUNT - ' num2str(settings.permutation_count) ')']);
+    case 1,         % Subtract mean of surrogates (+ve / -ve deflections can be asymmetrical)
+        bar(phaseangle,(rmag-mean(permrmag(:)))/mean(permrmag(:))); hold('on');
+        plot(phaseangle,smooth((rmag-mean(permrmag(:)))/mean(permrmag(:)),5),'r'); xlim(phaseangle([1 end]));
+        if (size(permrmag,1)>0)
+            
+            fill( [ phaseangle fliplr(phaseangle) ], [ -confint*std(permrmag,[],1) fliplr(confint*std(permrmag,[],1))], 'g', 'facecolor', [1 1 1]*0.8, 'facealpha', 0.8 );
+            if ( 0 )
+                permrmag = (permrmag-mean(permrmag(:)))/mean(permrmag(:));
+                plot( phaseangle, permrmag, '-' );
+            end;
+        end;
+        title('CHANGE IN TREMOR AMPLITUDE');
+end;

@@ -1,0 +1,10 @@
+function mt_freqfit( x, flist )
+
+% Determine local frequency - pre
+for fn = (1:length(flist))
+    yc = sum( segpre.*cos(2*pi*flist(fn)*twin) );
+    ys = sum( segpre.*sin(2*pi*flist(fn)*twin) );
+    amp(fn) = abs( yc + 1i*ys );
+end;
+[~,ix] = max( amp );
+f1 = flist(ix);

@@ -1,0 +1,169 @@
+function [p11,bs11,p22,bs22,p12,bs12,bs21,params,bicoh11,bicoh22,bicoh12,bicoh21]=bi_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+%function [p11,bs11,p22,bs22,p12,bs12,bs21,params,[bicoh11,bicoh22,bicoh12,bicoh21]]=bi_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+%
+% Dual-frequency analysis type 2
+%
+% Input parameters
+%   Data parameters
+%       dat1        Time series 1
+%       dat2        Time series 2
+%       trig        Trigger
+%       offset      Offset (ms)
+%       duration    Duration (ms)
+%       rate        Sampling rate
+%   Analysis parameters
+%       opt_str     Options string
+%                       r<0,1,2>    rectify (none, ch1, ch1&2)
+%                       W           multitaper bandwidth (default: 6, 0=none)
+%                       f           maximum analysis frequency (default: Nyquist)
+%
+% For chosen bicoherence normalisation, see
+%   Hayashi et al. (2007) Ketamine increases the frequency of
+%       electroencephalographic bicoherence peak on the a spindle area
+%       induced with propofol. British Journal of Anaesthesia.
+%       doi:10.1093/bja/aem175
+%
+%
+%function [p11,bs11,p22,bs22,p12,bs12,bs21,params,[bicoh11,bicoh22,bicoh12,bicoh21]]=bi_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+
+% Default parameters
+W=6;                        % multitaper bandwidth
+maxf=rate/2;                % maximum analysis frequency (Nyquist)
+multitaper=true;            % perform multitaper analysis
+powernorm = false;
+
+% Parse options string
+options=deblank(opt_str);
+opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'W'
+            W=str2num(optarg);
+            if (isempty(W))
+                error(['Error in option argument -- W' optarg]);
+            end;
+            if (W==0)
+                multitaper=0;
+            end;
+        case 'n',
+            powernorm = true;
+        case 'f'
+            
+            error(' Cannot truncate analysis (yet) due to access requirements to P(f1+f2)');
+            
+            maxf=str2num(optarg);
+            if (isempty(maxf))
+                error(['Error in option argument -- f' optarg]);
+            end;
+            opt_str=[opt_str ' ' opt];
+        otherwise                   % Options for segmented analysis
+            opt_str=[opt_str ' ' opt];
+    end;
+end;
+
+% Determine data parameters
+offset=offset*rate/1000;        % Convert ms -> samples
+duration=duration*rate/1000;    %
+trig=round(trig);
+trialcount=length(trig);
+
+% Generate Discrete Prolate Spheroidal Sequences (DPSS)
+if (multitaper)
+    if (W==0.5)
+        [v,dk]=dpss(duration,1);     % 3rd part routine (Breitenberger)
+        v=v(:,1); dk=dk(1);
+    else
+        [v,dk]=dpss(duration,W);     % 3rd part routine (Breitenberger)
+    end;
+else
+    v=ones(duration,1); dk=1;
+end;
+tapercount=size(v,2);
+
+% Determine weighting scheme
+dk=dk/sum(dk);
+
+% Determine frequency range and maximum frequency
+freqs=rate*[0:duration/2]/duration;
+fmax=min(floor(duration/2),find(abs(freqs-maxf)==min(abs(freqs-maxf)))); % pts
+%fmax=dsearchn(freqs.',maxf);
+freqs=freqs(1:fmax);
+
+% Allocate memory
+p11=zeros(fmax,1);
+p22=zeros(fmax,1);
+p12=zeros(fmax,1);
+
+bs11=zeros(fmax/2);             % complex-bispectra
+bs22=zeros(fmax/2);             % bicoherence numerator (magnitude of average triple-product)
+bs12=zeros(fmax/2);
+bs21=zeros(fmax/2);
+
+bs11d = bs11; bs22d = bs11;     % bicoherence denominator (average of magnitude triple-product)
+bs12d = bs11; bs21d = bs11;
+
+% Recursively form dual-frequency spectrum
+for trial=1:trialcount
+    % Determine time range for trial
+    disp(['Dual-frequency trial ' int2str(trial) ' of ' int2str(trialcount)]);
+    trange=trig(trial)+offset+[0:duration-1];
+    dat1x = dat1(trange);
+    dat2x = dat2(trange);
+    if (powernorm)
+        dat1x = dat1x/sqrt(mean(dat1x.^2)/rate);
+        dat2x = dat2x/sqrt(mean(dat2x.^2)/rate);
+    end;
+    % Perform single segment analysis
+    [p11x,bs11x,p22x,bs22x,p12x,bs12x,bs21x,params]=bi_sp(dat1x,dat2x,rate,opt_str,v,dk);
+    
+    % Form recursive dual-frequency spectra
+    p11=p11+p11x/trialcount;
+    p22=p22+p22x/trialcount;
+    p12=p12+p12x/trialcount;
+    
+    bs11=bs11+bs11x/trialcount;             % ALL bispectra are COMPLEX
+    bs22=bs22+bs22x/trialcount;             % Average then magnitude for bicoherence numerator
+    bs12=bs12+bs12x/trialcount;             % Magnitude then average for bicoherence denominator
+    bs21=bs21+bs21x/trialcount;
+    
+    bs11d = bs11d+abs(bs11x)/trialcount;    % Bicoherence denominator
+    bs22d = bs22d+abs(bs22x)/trialcount;
+    bs12d = bs12d+abs(bs12x)/trialcount;
+    bs21d = bs21d+abs(bs21x)/trialcount;
+    
+end;
+
+% Modify parameters structure
+params.W=W;
+params.freqs=freqs;
+params.bifreqs=freqs(1:end/2);
+params.fmax=maxf;
+params.tapercount=tapercount;
+params.trialcount=trialcount;
+params.L=trialcount*params.L;
+
+% Check output arguments
+if (nargout>4)
+    
+    bicoh11 = abs(bs11)./(bs11d);
+    bicoh22 = abs(bs22)./(bs22d);
+    bicoh12 = abs(bs12)./(bs12d);
+    bicoh21 = abs(bs21)./(bs21d);
+    
+%     return;
+%     
+%     bicoh11 = zeros(size(bs11));
+%     bicoh22 = bicoh11;
+%     bicoh12 = bicoh11;
+%     bicoh21 = bicoh11;
+%     for f1=(1:fmax/2)
+%         for f2=(1:fmax/2)
+%             bicoh11(f1,f2) = (abs(bs11(f1,f2))^2)/(p11(f1)*p11(f2)*p11(f1+f2));     % Using this notation - not the only choice
+%             bicoh22(f1,f2) = (abs(bs22(f1,f2))^2)/(p22(f1)*p22(f2)*p22(f1+f2));
+%             bicoh12(f1,f2) = (abs(bs12(f1,f2))^2)/(p11(f1)*p22(f2)*p22(f1+f2));
+%             bicoh21(f1,f2) = (abs(bs21(f1,f2))^2)/(p22(f1)*p11(f2)*p11(f1+f2));
+%         end;
+%     end;
+end;

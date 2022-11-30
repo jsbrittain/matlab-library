@@ -1,0 +1,29 @@
+function [Te,Fe,Fmax] = wl_coi( wlparam )
+%function [Te,Fe,Fmax] = wl_coi( wlparam )
+%
+% Returns the e-folding time (e^-2) for temporal and spectral aspects.
+%
+% Optimisation search method; use wl_coi_old.m for numerical comparison
+%
+%function [Te,Fe,Fmax] = wl_coi( wlparam )
+
+% Instigate wavelet functions
+wl_wavelet  = str2func(['wl_'  wlparam.mother]);
+wlf_wavelet = str2func(['wlf_' wlparam.mother]);
+
+% Average time-domain wavelet response using same weighting
+
+fnc = @(x) abs( (abs(wl_wavelet(x,wlparam.wlopt{:})).^2)/(abs(wl_wavelet(0,wlparam.wlopt{:})).^2) - exp(-2) );
+Te = fminsearch( fnc, 0 );
+
+% Average frequency-domain wavelet response using same weighting
+
+% Find maxima (will be omega0 for Morlet, but compute for generality)
+fnc = @(x) -wlf_wavelet(x,1,wlparam.dt,wlparam.wlopt{:});
+fc = fminsearch( fnc, 0 );
+% Find exp(-2) crossing
+fnc = @(x) abs( (abs(wlf_wavelet(x,1,wlparam.dt,wlparam.wlopt{:})).^2)/(abs(wlf_wavelet(fc,1,wlparam.dt,wlparam.wlopt{:})).^2) - exp(-2) );
+Fe = (fminbnd( fnc, fc, 10 )/2/pi - fminbnd( fnc, 0, fc )/2/pi)/2;
+
+% Determine maximum analysis frequency (Fe/a = fs/2 - f0/a)
+Fmax = 1/wlparam.fourier_factor/wlparam.dt/2/(Fe+wlparam.fourier_factor);

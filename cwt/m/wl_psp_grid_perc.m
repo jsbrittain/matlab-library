@@ -1,0 +1,35 @@
+function wl_psp_grid_perc( wltime, Wsp, wlparam, baseline, chlabels )
+%function wl_psp_grid_perc( wltime, Wsp, wlparam, baseline, chlabels )
+%
+% Wavelet (spectrogram) grid plot
+% Percetnage change auto-spectra
+%
+
+% Check time input and reform as appropriate
+M = length(Wsp);
+if (length(wltime)~=size(Wsp{1,1},2))
+    wltime = wl_time(wltime, Wsp{1,1});
+end;
+
+% Check channel labels
+if (~exist('chlabels'))
+    for ind=(1:M)
+        chlabels{ind}=num2str(ind);
+    end;
+end;
+
+% Plot grid-array
+figure;
+for ch1=(1:M)
+    for ch2=(1:M)
+        subplot(M,M,(ch1-1)*M+ch2);
+        if (ch1==ch2)       % Diagonal (spectra)
+            wlpsp_a(wltime, wl_baseline(wltime,Wsp{ch1,ch2}(:,:,1),baseline), wlparam{ch1,ch2},[],'l');
+        elseif (ch1<ch2)    % Upper quadrant (Coherence)
+            %wlpsp_coh(wltime, Wsp{ch1,ch2}(:,:,4), wlparam{ch1,ch2},[],'');
+            delete(gca);
+        else                % Lower quandrant (Phase)
+            delete(gca);
+        end;
+    end;
+end;

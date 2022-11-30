@@ -1,0 +1,87 @@
+function kfslice_psp_coh(sp,params,freq,label);
+%function kfslice_psp_coh(sp,params,freq,[label]);
+%
+% Kalman-Fourier plotting routine for a frequency slice through coherence
+%
+% Input parameters
+%       sp          Spectral matrix
+%       params      Parameters structure
+%       freq        Slice frequency
+%       label       (opt) Additional label
+%
+% Plot result depends on params
+%       params      xorder,xlabel   Plot using xorder for x-axis points
+%                   jk              Include jackknife confidence limits
+%                   y2,[y2label]    Plot second axis overlay with label
+%
+%function kfslice_psp_coh(sp,params,freq,[label]);
+
+% Plot parameters
+pointwise=logical(1);           % Plot pointwise confidence limits
+
+% Construct label if absent
+if (~exist('label'))
+    label=kf_label(params);
+end;
+
+% Extract coherence
+fpos=dsearchn(params.freqs',freq);
+coh=squeeze(sp(fpos,4,:));
+
+% Determine 95% confidence limit
+Lprime=double(params.Lprime);
+if (ndims(Lprime)>1)
+    Lprime=Lprime(fpos,:);
+end;
+warning off MATLAB:divideByZero
+R95=(1-0.05.^(1./(Lprime-1)));
+warning on MATLAB:divideByZero
+
+% Determine x-axis and label
+if (isfield(params,'xorder'))
+    xorder=params.xorder;
+    xwhat=params.xlabel;
+else
+    xorder=1:params.M;
+    xwhat='Trials';
+end;
+
+% Plot coherence
+ax(1)=newplot;
+if (pointwise)
+    cl_upper=(tanh(atanh(sqrt(coh))+1.96./sqrt(2*Lprime')).^2);
+    cl_lower=tanh(atanh(sqrt(coh))-1.96./sqrt(2*Lprime'));
+    cl_lower(cl_lower<0)=0; cl_lower=cl_lower.^2;
+    h=plot(xorder,cl_lower*[1 1],xorder,cl_upper*[1 1]);
+    set(h,'color',[0.8 0.2 0.2]);      % Deep red line
+else
+    h=plot(xorder,R95,'k--');
+end;
+hold on;
+if (isfield(params,'jk'))
+    h=plot(xorder,tanh(1.96*squeeze(sqrt(params.jk(fpos,4,:)))).^2);
+    set(h,'color',0.6*[1 1 1]);    % Solid gray line
+end;
+plot(xorder,coh,'k'); hold off;    % Plot coherence last to overlay conf limits
+hold off;
+xlim([min(xorder) max(xorder)]);
+ylims=ylim;
+ylim([0 min(1,ylims(2))]);
+xlabel(xwhat);
+title(['coh ' int2str(round(params.freqs(fpos))) 'Hz ' label]);
+
+% Add second axis
+if (isfield(params,'y2'))
+    y2colour=[10 118 74]/255;
+    set(ax(1),'box','off'); ylabel('coh');
+    ax(2)=axes('position',get(ax(1),'position'));
+    plot(xorder,params.y2,'color',y2colour);
+    set(ax(2),'YAxisLocation','right','color','none','box','off','ycolor',y2colour);
+    xlim([min(xorder) max(xorder)]);
+    set(ax(1),'activepositionproperty','position');
+    set(ax(2),'activepositionproperty','position');
+    if (isfield(params,'y2label'))
+        ylabel(params.y2label);
+    end;
+    subplot(ax(1));
+end;

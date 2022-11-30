@@ -1,0 +1,43 @@
+%
+% replicate Wang paper Fig.2a
+%
+% Wang, S and Tang, M (2004)
+% Exact Confidence Interval for Magnitude-Squared Coherence Estimates
+% IEEE Signal Processing Letters, 11(3): 326-329.
+%
+
+nd = 4;
+estcoh = (0:0.001:1)';
+
+figure; hold on;
+TrueCohList = (0:0.001:1);
+truecoh0 = [];
+for ind = (1:length(TrueCohList))
+    truecoh = TrueCohList(ind);
+    
+    % Equation 3 (loop computes sum including Eq.4)
+    cumulant = 0;
+    for k = 0:(nd-2)
+
+        T(1:length(estcoh),1) = 1;
+        for i = (1:k)
+            T(:,i+1) = T(:,i).*((i-1-k)*(i-nd).*estcoh.*truecoh)./(i^2);
+        end;
+        F21 = sum(T(:,(0:k)+1),2);
+
+        cumulant = cumulant + ( (((1-estcoh)./(1-estcoh.*truecoh)).^k).*F21 );
+    end;
+    prob = estcoh.*(( (1-truecoh)./(1-estcoh.*truecoh) ).^nd).*cumulant;
+
+    %plot(estcoh,prob);
+    %plot(estcoh(2:end),diff(prob));
+    
+    [~,ix] = max(diff(prob));
+    truecoh0(ind) = estcoh(ix);
+    
+end;
+
+plot( estcoh, truecoh0 );
+hold on
+plot( xlim, ylim, 'k' );
+

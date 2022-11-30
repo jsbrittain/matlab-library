@@ -1,0 +1,29 @@
+function P = wl_powerarea(time,freqs,sp,tspan,fspan)
+%
+% Extract power of time-frequency area designated by tspan, fspan
+%
+% Spectrogram expected in ( freq x time ) format
+%
+
+% Check spectrogram structure against time/freq indices
+sp = squeeze(sp);
+if ((length(time)~=size(sp,2)) || (length(freqs)~=size(sp,1)))
+    error(' Spectrum does not match time-frequency vectors.');
+end;
+
+% Check input parameters (deafult 
+if (isempty(tspan))
+    tspan = time([1 end]);
+end;
+if (isempty(fspan))
+    fspan = freqs([1 end]);
+end;
+
+% 
+trange = sort( dsearchn( time', tspan' ) );
+frange = sort( dsearchn( freqs', fspan' ) );
+
+dt = abs( time(2)-time(1) );
+df = abs( freqs(2)-freqs(1) );
+
+P = mean( mean( sp( frange(1):frange(2), trange(1):trange(2) ), 1)/df, 2 )/dt;

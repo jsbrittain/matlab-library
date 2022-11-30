@@ -1,0 +1,53 @@
+function params = cf_phsync( preprocdata, windowlength )
+%
+%
+% Most preprocessing and amplitude analysis done on 'x', whereas 'y'
+% provides the phase comparitor.
+%
+%
+
+% Expand proprocessed data to (local) workspace
+struct2vars( preprocdata );
+
+%% Analyse TACS data, then randomly permute phase and continue re-analysing
+
+% Reset phase
+yfh = hilbert(yf);
+yfh = smooth(yfh, smoothing);
+
+winsamples = windowlength*rate;
+segs = floor(length(xfh)/winsamples);
+ps = zeros(1,segs); pd = ps; xmag = pd;
+
+% Phase synchronisation index over segments
+for n = (1:segs)
+    tt = ((n-1)*winsamples) + (1:winsamples);
+    ps(n) = abs(mean(exp(1i*(angle(xfh(tt))-angle(yfh(tt))))));
+    
+    % also, calculate mean phase difference
+    pd(n) = mean( angle(xfh(tt)./yfh(tt)) );
+    xmag(n) = mean( magxh(tt) );
+end;
+
+% Populate parameters structure
+params.time = (0:segs-1)*windowlength;
+params.ps = ps;
+params.pd = pd;
+params.xmag= xmag;
+
+% % Populate parameters structure
+% params.phaseangle = phaseangle;
+% params.rmag = squeeze(rmag(1,:,:));
+% params.rmagsd = squeeze(rmagsd(1,:,:));
+% params.rif = squeeze(rif(1,:,:));
+% params.rcount = squeeze(rcount(1,:,:));
+% params.perm.rmag = rmag(2:end,:,:);
+% params.perm.rmagsd = rmagsd(2:end,:,:);
+% params.perm.rif = rif(2:end,:,:);
+% params.perm.rcount = rcount(2:end,:,:);
+% params.settings.amp_norm_secs = amp_norm_secs;
+% params.settings.permutation_count = permutation_count;
+% params.settings.bincount = bincount;
+
+% Display update
+disp('done.');

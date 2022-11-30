@@ -1,0 +1,144 @@
+function [dat,time,rate]=spiketxt_in(filename,rate,bandpass,notch,nullchannels)
+%function [dat,time,rate]=spiketxt_in(filename,rate,bandpass,notch,nullchannels)
+%
+% Load data from CED spreadsheet output, reorder & preprocess
+% Output corresponds to Spike2 ordering (i.e. ch. 1, 2, 3, ...)
+%
+% Supports
+%   (1) spike2 text file output (direct export with text header)
+%   (2) nspl-format (includes header line)
+%   (3) matrix (no header)
+%
+% Future consideration: integration with son2 (.smr) library
+%
+% Notch can be true/false or 0,1,2 (2=comb @ 50hz harmonics)
+%
+%function [dat,time,rate]=spiketxt_in(filename,rate,bandpass,notch,nullchannels)
+
+% Display progress
+disp('Loading data...');
+
+% Determine file format (check header: (1) spike2 (2) NSPL (3) matrix)
+fid=fopen(filename);
+firstline=fgetl(fid);
+quickload=true;
+if (isempty(str2num(firstline)))
+    % First line contains non-numeric characters (spike2 header)
+    disp(' Format: spike2');
+    quickload=false;
+    % Determine number of lines to allow preallocation of memory
+    disp(' Parsing file size');
+    [state,linecount] = system(['wc -l ' filename]);    % UNIX specific command
+    cols=length(str2num(fgetl(fid)));
+    if (state==0)                                       % So provide (slower) windows alternative
+        linecount=1;
+        while true
+            tline=fgetl(fid);
+            if (~ischar(tline))
+                break;
+            end;
+            linecount=linecount+1;
+        end;
+    else
+        linecount = str2num(strtok(linecount));
+    end;
+    fclose(fid);
+    % Load data
+    disp(' Loading data matrix');
+    fid=fopen(filename);
+    fgetl(fid);
+    dat=zeros(linecount,cols);
+    dat(1,:)=str2num(fgetl(fid));
+    for ind=(2:linecount)
+        dat(ind,:)=str2num(fgetl(fid));
+    end;
+else
+    % First line contains numeric symbols only (NSPL or matrix)
+    firstline=str2num(firstline);
+    if (length(firstline)==4)
+        % Check if in nspl format
+        secondline=str2num(fgetl(fid));
+        if ((firstline(3)==0) && (firstline(4)==0) && (firstline(2)==length(secondline)))
+            % NSPL format
+            quickload=false;
+            disp('Format: nspl');
+            % Determine number of lines to allow preallocation of memory
+            disp(' Parsing file size');
+            cols=firstline(2); linecount=1;
+            while true
+                tline=fgetl(fid);
+                if (~ischar(tline))
+                    break;
+                end;
+                linecount=linecount+1;
+            end;
+            fclose(fid);
+            % Load data
+            disp(' Loading data matrix');
+            fid=fopen(filename);
+            fgetl(fid);
+            dat=zeros(linecount,cols);
+            dat(1,:)=str2num(fgetl(fid));
+            for ind=(2:linecount)
+                dat(ind,:)=str2num(fgetl(fid));
+            end;
+        end;
+    end;
+end;
+fclose(fid);
+% Load data in matrix format
+if (quickload)
+    disp(' Format: matrix');
+    dat=load(filename);
+end;
+
+% Separate data matrix
+time=dat(:,1); dat=dat(:,setdiff([1:size(dat,2)],[1 nullchannels]));
+dat=fliplr(dat);    % Reverse channel ordering (brings into alignment with ced inputs)
+chcount=size(dat,2);
+oldrate=round(1/(time(2)-time(1)));
+if (isempty(rate))
+    rate=oldrate;
+end;
+
+% Downsample
+if (oldrate~=rate)
+    disp('Downsampling...');
+    for ind=(1:size(dat,2))
+        dat2(:,ind)=downsample_jsb(dat(:,ind),oldrate,rate);
+    end;
+    time=time(1)+[0:(length(dat2(:,1))-1)]/rate;
+    dat=dat2; clear('dat2');
+end;
+
+% Filter data
+if (notch)
+    if (notch==2)
+        notchfreqs=(50:50:(rate/2)-50);
+    else
+        notchfreqs=50;
+    end;
+	for notchfreq=notchfreqs
+        [b,a]=butter(2,(notchfreq+[-1 1])/(rate/2),'stop');
+        for ind=(1:size(dat,2))
+            dat(:,ind)=filtfilt(b,a,dat(:,ind));
+        end;
+    end;
+end;
+if (~isempty(bandpass))
+    disp('Filtering...');
+    if (bandpass(1)~=0)
+        [b,a]=butter(2,bandpass(1)/(rate/2),'high');
+        for ind=1:size(dat,2)
+            dat(:,ind)=filtfilt(b,a,dat(:,ind));
+        end;
+    end;
+    if (bandpass(2)~=rate/2)
+        [b,a]=butter(2,bandpass(2)/(rate/2),'low');
+        for ind=(1:size(dat,2))
+            dat(:,ind)=filtfilt(b,a,dat(:,ind));
+        end;
+    end;
+end;
+N=size(dat,1);
+disp('Loaded and pre-processed.');

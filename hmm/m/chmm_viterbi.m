@@ -1,0 +1,77 @@
+function [q,logP,sigmati] = chmm_viterbi(b,prior,A)
+%function [q,[logP,[sigmati]]] = chmm_viterbi(b,prior,A)
+%
+% Continuous observation (pdf) Hidden-Markov Model (HMM)
+%
+% Viterbi algorithm
+%
+% Returns the most likely set of states for a given model and observation
+% set (dynamic programming approach; non-unique).
+%
+% Input parameters
+%       b             Observation likelihood
+%                       ( M x N )
+%       prior         Initial state distribution
+%                       ( Q x 1 )
+%       A             Transition probability matrix
+%                       ( Q x Q )
+%
+% Output argument
+%       q             State-sequence
+%                       ( 1 x N )
+%
+% This routine has been modified to propagate log P throughout the
+% calculation. Also, scaling is applied to the sequence probability at each
+% sample to facilitate continous update (log P propagation reset). Scaling
+% alone is sufficient, but can be muted with an internal switch, thus log
+% propagation also remains.
+%
+% Reference
+%   Rabiner, K. R. (1989) A Tutorial on Hidden Markov Models and Selected
+%   Applications in Speech Recognition. Proceedings of the IEEE, 77(2):
+%   257-286.
+%
+%function [q,[logP,[sigmati]]] = chmm_viterbi(b,prior,A)
+
+% Determine data parameters
+N=size(b,2);
+Q=size(A,1);
+
+% Reserve memory
+sigmati = zeros(N,Q);
+phiti = zeros(N,Q);
+warning off
+logA = log(A);
+warning on
+
+% Initialise
+for i=(1:Q)
+    sigmati(1,i) = log(prior(i)) + log(b(i,1));
+    phiti(1,i) = 0;
+end;
+
+% Induction
+for t=(2:N)
+    for j=(1:Q)
+        [sigmati(t,j),phiti(t,j)] = max( sigmati(t-1,:) + logA(:,j).' );
+        sigmati(t,j) = sigmati(t,j) + log(b(j,t));
+    end;
+    if (true)
+        % Normalise sigmati: P()
+        sigmati(t,:) = log(exp(sigmati(t,:))/sum(exp(sigmati(t,:))));
+%        sigmati(t,:) = log(exp(sigmati(t,:))/sum(exp(sigmati(max(1,t-5),:))));
+    end;
+end;
+
+% Termination
+[logP,q(N)] = max(sigmati(end,:));
+
+% Path (state-sequence) backtracking
+for t=((N-1):(-1):1)
+    q(t) = phiti(t+1,q(t+1));
+end;
+
+% Check output arguments
+if (nargout<2)
+    clear('P');
+end;

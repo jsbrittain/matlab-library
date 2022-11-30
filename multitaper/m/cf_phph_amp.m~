@@ -1,0 +1,132 @@
+function params = cf_phph_amp( x, y, passbandx, passbandy, dropoff, rate, amp_norm_secs, smoothing, trimlevel, bincount, permutation_count )
+%
+%
+% Most preprocessing and amplitude analysis done on 'x', whereas 'y'
+% provides the phase comparitor.
+%
+%
+
+% Default parameters
+if (isempty(passbandy))
+    passbandy = passbandx;
+end;
+if (isempty(smoothing))
+    smoothing = 1;
+end;
+if (isempty(permutation_count))
+    permutation_count = 0;
+end;
+
+%% Preprocessing
+
+% Update display
+disp( 'Preprocessing...' );
+
+if (~isempty(passbandx))
+    % Specify filter
+    d = fdesign.bandpass;
+    d = fdesign.bandpass(passbandx(1)-dropoff,passbandx(1),passbandx(2),passbandx(2)+dropoff,d.Astop1,d.Apass,d.Astop2,rate);
+    h = design(d,'kaiserwin');      % Kaiser window FIR filter (linear phase)
+    Num = h.Numerator;
+    lNum = length(Num);
+    % Filter first channel
+    xf = filtfilt(Num,1,x);
+    % Filter TACS channel with secondary filter
+    if (~isempty(find(passbandx~=passbandy, 1)))
+        % Specify filter
+        d = fdesign.bandpass(passbandy(1)-dropoff,passbandy(1),passbandy(2),passbandy(2)+dropoff,d.Astop1,d.Apass,d.Astop2,rate);
+        h = design(d,'kaiserwin');      % Kaiser window FIR filter (linear phase)
+        Num = h.Numerator;
+        lNum = max([lNum length(Num)]);
+    end;
+    % Filter second channel
+    yf = filtfilt(Num,1,y);
+    % Chop edges
+    xf = xf(lNum:end-lNum);
+    yf = yf(lNum:end-lNum);
+else
+    % No filtering
+    xf = x;
+    yf = y;
+end;
+
+% Hilbert and smooth Ax
+xfh = hilbert(xf);
+xfh = smooth(xfh, smoothing);
+
+% Accelerometer magnitude
+magxh = abs(xfh);
+magxh_orig = magxh;
+% Running-average amplitude normalisation
+if (~isempty(amp_norm_secs))
+    magxh = magxh./runavg(magxh,amp_norm_secs*rate);
+end;
+
+% Accelerometer (instantaneous frequency)
+ifxh = diff(angle(xfh)); ifxh = ifxh([(1:end) end]);
+ifxh(ifxh<0) = ifxh(ifxh<0) + 2*pi;
+ifxh = ifxh*rate/2/pi;
+% Reset severe deflections to mean and smooth
+ifxh(ifxh>(2*passbandx(2))) = mean(ifxh);
+ifxh = smooth(ifxh,smoothing);
+
+%% Analyse TACS data, then randomly permute phase and continue re-analysing
+
+% Reset phase
+yfh = hilbert(yf);
+yfh = smooth(yfh, smoothing);
+
+% Reserve memory
+rmag = zeros(permutation_count+1, bincount);
+rmagsd = rmag; rif = rmag; rcount = rif;
+
+% Corresponding Phase vector
+phaseangle = (0:(bincount-1))/bincount*2*pi - pi;
+
+% Iterate through permutations
+for k = (1:(permutation_count+1))
+    
+    % Update display
+    if (k==1)
+        disp('Deriving phase-phase amplitude ...')
+    else
+        disp([' Permutation trial ' num2str(k-1) ' of ' num2str(permutation_count) ])
+    end;
+    
+    % Compute phase angle difference (and quantize)
+    anglegridx = round( (angle( xfh )+pi)/2/pi*bincount );
+    anglegridx(anglegridx==bincount) = 0;                   % Wrap first/last half-elements together
+    anglegridy = round( (angle( xfh )+pi)/2/pi*bincount );
+    anglegridy(anglegridy==bincount) = 0;                   % Wrap first/last half-elements together
+    
+    % Mean amplitude per angle
+    for n1 = (0:(bincount-1))
+        disp([ ' bin ' num2str(n1) ' of ' num2str(bincount) ]);
+        for n2 = (0:(bincount-1))
+            rmag(k,n+1) = trimmean( magxh((anglegridx==n) & (anglegridy==n)), trimlevel );
+            rmagsd(k,n+1) = std( magxh(anglegrid==n) );
+            rif(k,n+1) = trimmean( ifxh(anglegrid==n), trimlevel );
+            rcount(k,n+1) = sum(anglegrid==n);
+        end;
+    end;
+
+    % Phase shuffle predictor for next iteration
+    yfh = yfh( randperm(length(yfh)) );
+    
+end;
+
+% Populate parameters structure
+params.phaseangle = phaseangle;
+params.rmag = rmag(1,:);
+params.rmagsd = rmagsd(1,:);
+params.rif = rif(1,:);
+params.rcount = rcount(1,:);
+params.perm.rmag = rmag(2:end,:);
+params.perm.rmagsd = rmagsd(2:end,:);
+params.perm.rif = rif(2:end,:);
+params.perm.rcount = rcount(2:end,:);
+params.settings.amp_norm_secs = amp_norm_secs;
+params.settings.permutation_count = permutation_count;
+
+% Display update
+disp('done.');

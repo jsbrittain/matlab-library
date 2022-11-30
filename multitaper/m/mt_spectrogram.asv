@@ -1,0 +1,228 @@
+function [S11,S22,S12,params]=mt_spectrogram(dat1,opt1,opt2,opt3,opt4,opt5,opt6);
+%function [S11,[S22,S12],params]=mt_spectrogram(dat1,[dat2],rate,segdur,opt_str,[v,dk]);
+%
+% High-resolution (Multitaper) Spectrogram
+% Applied to bivariate sata
+%
+% PROBLEMS PRODUCING CROSS-SPECTRA USING THE HIGH-RESOLUTION (COMPLEX
+% DEMOSULATES) METHOD.
+%
+% Produces multi-taper spectrograms with a higher time resolution than
+% those produced using the naive STFT with MTM estimates construction.
+% Time-resolution improved by a factor of K (tapercount) as described
+% in (Thomson 2000, sec.6 & sec.3.3 for complex demodulates).
+%
+% Allows the production of three types of multitaper spectrogram through
+% the setting of the downsample parameter 'd<0,1,2>'.  For state '0' no
+% downsampling of the complex demodulates is performed and adjacent
+% time components are correlated.  State '1' downsamples the complex
+% demodulates to produce the high-resolution estimator.  State '2'
+% integrates the high-resolution spectrogram within blocks to produce the
+% naive multitaper spectrogram.
+%
+% Input parameters
+%       dat1        Time series channel 1
+%       dat2        Time series channel 2
+%       rate        Sampling rate
+%       segdur      Segment duration
+%       opt_str     Options string
+%                       W<n>        time-bandwidth product
+%                       d<0,1,2>    downsample (0-none,1-bandwidth(default),2-naive)
+%       v           (opt) slepian sequences (time domain)
+%       dk            -   weighting vector
+%
+% Output parameters
+%       S11         Auto-spectra  ch.1
+%       S22         Auto-spectra  ch.2
+%       S12         Cross-spectra ch.1,2
+%       params      Parameters structure
+%
+% Thomson 2000, "Multitaper Analysis of Nonstationary and Nonlinear Time
+%   Series Data" in "Nonlinear and Nonstationary Signal Processing", Ed.
+%   W.J. Fitzgerald et al. Cambridge University Press.
+%
+%function [S11,[S22,S12],params]=mt_spectrogram(dat1,[dat2],rate,segdur,opt_str,[v,dk]);
+
+% Check input parameters
+bivariate=logical(0);
+switch (nargin)
+    case 4, rate=opt1; segdur=opt2; opt_str=opt3;
+            bivariate=logical(0);
+            if ((nargout~=0) & (nargout~=2))
+                error(' Incorrect number of output parameters');
+            end;
+    case 5, dat2=opt1; rate=opt2; segdur=opt3; opt_str=opt4;
+            bivariate=logical(1);
+            if ((nargout~=0) & (nargout~=4))
+                error(' Incorrect number of output parameters');
+            end;
+    case 6, rate=opt1; segdur=opt2; opt_str=opt3; v=opt4; dk=opt5;
+            if ((nargout~=0) & (nargout~=2))
+                error(' Incorrect number of output parameters');
+            end;
+    case 7, dat2=opt1; rate=opt2; segdur=opt3; opt_str=opt4; v=opt5; dk=opt6;
+            bivariate=logical(1);
+            if ((nargout~=0) & (nargout~=4))
+                error(' Incorrect number of output parameters');
+            end;
+    otherwise
+            error(' Incorrect number of inputs');
+end;
+
+% Default parameters
+NW=3;                   % time-bandwidth product
+downsample=1;           % downsample to W
+maxf=rate/2;            % maximum analysis frequency (Nyquist)
+
+
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'W'        % Specify bandwidth
+            NW=str2num(optarg);
+            if (isempty(NW))
+                error(['Error in option argument -- W' optarg]);
+            end;
+        case 'd'        % Downsample
+            downsample=str2num(optarg);
+            if (isempty(downsample))
+                error(['Error in option argument -- d' optarg]);
+            end;
+        otherwise                   % Options for wavelet analysis
+            error(['Unknown option -- ' opt]);
+    end;
+end;
+
+% Determine data parameters
+N=length(dat1);
+segN=segdur*rate/1000;
+segs=floor(N/segN);
+
+% Generate DPSS sequence
+if (~exist('v'))
+    [v,dk]=dpss(segN,NW);
+end;
+tapercount=length(dk);
+dt=segN/tapercount;
+time=[0:dt:N-dt]/rate;
+
+% Determine maximum frequency
+freqs=rate*[0:segN/2]/segN;
+fmax=length(freqs);    % pts
+fcount=fmax;
+
+% Allocate memory
+x=zeros(fmax,tapercount,segs);
+if (bivariate)
+    y=zeros(fmax,tapercount,segs);
+end;
+
+% Calculate eigencoefficients
+for seg=1:segs
+    trange=(seg-1)*segN+1:seg*segN;
+    for ind=1:tapercount
+        fx=fft(dat1(trange).*v(:,ind)); fx=fx(1:fmax);
+        x(:,ind,seg)=x(:,ind,seg)+dk(ind)*fx;
+        if (bivariate)
+            fy=fft(dat2(trange).*v(:,ind)); fy=fy(1:fmax);
+            y(:,ind,seg)=y(:,ind,seg)+dk(ind)*fy;
+        end;
+    end;
+end;
+
+% Downsample eigencoefficients (frequency domain)
+if (downsample>0)
+    bandwidth=2*NW*rate/N;
+    frange=dsearchn(freqs',[bandwidth/2:bandwidth:maxf]')';
+    %frange=round(NW:NW:fmax);
+	fcount=length(frange);
+	freqs=freqs(frange);
+	x=x(frange,:,:);
+	if (bivariate)
+        y=y(frange,:,:);
+	end;
+end;
+
+% Set time-resolution
+switch (downsample)
+    case 0,     tcount=fcount;
+    case {1,2}, tcount=tapercount;
+    otherwise, error(' Unknown downsample option');
+end;
+
+% Determine complex demodulates with downsampling (see Thomson 2000 sec 3.3)
+xhat=zeros(fcount,tcount,segs);
+if (bivariate)
+    yhat=zeros(fcount,tcount,segs);
+    zhat=zeros(fcount,tcount,segs);
+end;
+tj=round(segN/tcount/2:segN/tcount:segN);
+for seg=1:segs
+	for j=1:tcount
+	    vt=v(tj(j),:);
+	    xhat(:,j,seg)=sum(x(:,:,seg).*sqrt(dk(:,ones(1,fcount))').*vt(ones(fcount,1),:),2);
+        if (bivariate)
+            yhat(:,j,seg)=sum(y(:,:,seg).*sqrt(dk(:,ones(1,fcount))').*vt(ones(fcount,1),:),2);
+        end;
+	end;
+end;
+clear('x','y');
+
+% Form spectra
+if (downsample==2)
+    % Integrate spectrum within blocks
+    S11=squeeze(sum(abs(xhat).^2/tcount,2));
+    if (bivariate)
+        S22=squeeze(sum(abs(yhat).^2/tcount,2));
+        S12=squeeze(sum((yhat.*conj(xhat))/tcount,2));
+    end;
+else
+    % Concatenate demodulates and determine energy
+    xhat=reshape(xhat,fcount,tcount*segs);
+    S11=(abs(xhat).^2)/tapercount;
+    if (bivariate)
+        yhat=reshape(yhat,fcount,tcount*segs);
+        S22=(abs(yhat).^2)/tapercount;
+        S12=(yhat.*conj(xhat))/tapercount;
+        clear('yhat');
+    end;
+    clear('xhat');
+end;
+
+% Determine equivalent number segments
+L=1;
+if (downsample==2)
+    L=1/sum((dk/sum(dk)).^2);
+end;
+
+% Construct parameters structure
+params.freqs=freqs;
+% Add fields for plotting compatibility
+params.freqs=freqs;
+params.linearscale=logical(1);
+params.L=L;
+params.coi=[];
+params.mother='High Resolution Spectrogram';
+params.wlopt={segdur,NW};
+params.paramstr={'segdur','NW'};
+params.display_coi=logical(0);
+
+% Assign output parameters as neccessary
+if (nargout==0)
+    % Plot results
+    time=[0:N-1]/rate;
+    if (bivariate)
+        mwpsp(time,dat1,dat2,S11,S22,S12,params);
+    else
+        wlpsp_a(time,S11,params,'b'); xlabel('offset (secs)');
+    end;
+    % Remove spectra from output
+    clear('S11','params');
+    if (bivariate), clear('S22','S12'); end;
+elseif (nargout==2)
+    S22=params;
+    clear('S12','params');
+end;

@@ -1,0 +1,55 @@
+
+addpath('~/matlab/library/hmm/m');
+addpath('~/matlab/library/thirdparty/arfit/arfit');
+
+m=1; M=2; p=3;
+N=200;
+
+%% Generate data
+y0={}; A={}; k=1;
+C = 0.1*rand(m).*eye(m) + 0.01*rand(m);
+lastwarn('');
+while (k<=M)
+    A{k} = rand(m,m*p);
+    y0{k} = arsim(zeros(1,m),A{k},C,N).';
+    if (isempty(lastwarn))      % Ensure AR model stable (warning output from arsim)
+        k=k+1;
+    else
+        lastwarn('');
+    end;
+end;
+y = [y0{:}];
+y = y-repmat(mean(y,2),1,size(y,2));
+
+%% VAR analysis
+s2static=[]; alpha=0.1;
+[q,s2,evidence,ct,rhoavg] = ar_kalman(y,p,s2static,alpha);
+
+% Pad states if AR model (AR->VAR)
+if (length(size(q))<4)
+    q = reshape(q,1,1,size(q,1),size(q,2));
+end;
+
+% Plot VAR results
+figure;
+subplot(p+3,1,1); plot(evidence);
+subplot(p+3,1,2); plot(y');
+subplot(p+3,1,3); hold('on');
+strcol='brgc';
+    for n=(1:(m^2*p))
+        plot(squeeze(ct(n,n,:)),strcol(n));
+    end;
+for k=(1:p)
+    subplot(p+3,1,k+3); hold('on');
+    for n1=(1:m)
+        for n2=(1:m)
+            plot(squeeze(q(n1,n2,k,:)),strcol((n1-1)*m+n2));
+        end;
+    end;
+end;
+for k=(1:(p+3))
+    subplot(p+3,1,k); hold('on');
+    for n=(1:(M-1))
+        plot(N*n*[1 1],ylim,'k');
+    end;
+end;

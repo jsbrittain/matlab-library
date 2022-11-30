@@ -1,0 +1,105 @@
+function [q,logP,sigmati,maxj] = chmmxsd_viterbi(b,prior,A,Dpdf,Dparams,Dmax)
+%function [q,[logP,[sigmati]]] = chmmxsd_viterbi(b,prior,A,Dpdf,Dparams,Dmax)
+%
+% Viterbi algorithm
+%
+% Hidden-Markov Model (HMM)
+%   Continuous observation (pdf)
+%   Explicit State Duration (xsd)
+%
+% Returns the most likely set of states for a given model and observation
+% set (dynamic programming approach; non-unique).
+%
+% Input parameters
+%       b             Observation likelihood
+%                       ( M x N )
+%       prior         Initial state distribution
+%                       ( Q x 1 )
+%       A             Transition probability matrix
+%                       ( Q x Q )
+%       Dpdf          State duration density
+%                       Cell array of function calls ( ie. Dpdf{1} = @gampdf )
+%       Dparams       State duration density parameterisation
+%                       ( cell array of params per state )
+%                       ( ie. Dparams{1}{k1,theta1} for "y = gampdf(x,k1,theta1)" )
+%       Dmax          Upper bound to evaluate Dpdf
+%                       ( ie. Dmax = 1000 samples )
+%
+% Output argument
+%       q             State-sequence
+%                       ( 1 x N )
+%
+% This routine has been modified to propagate log P throughout the
+% calculation. Also, scaling is applied to the sequence probability at each
+% sample to facilitate continous update (log P propagation reset). Scaling
+% alone is sufficient, but can be muted with an internal switch, thus log
+% propagation also remains.
+%
+% Reference
+%   Rabiner, K. R. (1989) A Tutorial on Hidden Markov Models and Selected
+%     Applications in Speech Recognition. Proceedings of the IEEE, 77(2):
+%     257-286.
+%   Hughes, N. P. et al. () Markov Models for Automated ECG Interval
+%     Analysis.
+%
+%function [q,[logP,[sigmati]]] = chmmxsd_viterbi(b,prior,A,Dpdf,Dparams,Dmax)
+
+% Determine data parameters
+N=size(b,2);
+Q=size(A,1);
+
+% Check input parameters
+if (~isscalar(Dmax))
+    Dmax = max(Dmax);
+end;
+
+% Reserve memory
+q = zeros(1,N);
+sigmati = zeros(N,Q);
+maxdj = zeros(N,Q);
+maxj = zeros(N,Q);
+warning off
+logA = log(A);
+logb = log(b);
+for j=(1:Q)
+    logDpdf(:,j) = log(Dpdf{j}((1:Dmax),Dparams{j}{:}));
+end;
+warning on
+
+% Initialise
+for i=(1:Q)
+    sigmati(1,i) = log(prior(i)) + log(b(i,1));
+    phiti(1,i) = 0;
+end;
+
+% Induction (recurrence relation; see Hughes)
+for t=(2:N)
+    disp([num2str(N) ': ' num2str(t)]);
+    for j=(1:Q)
+        sigmaterm = zeros(min(Dmax,t-1),1);
+        sigmaindex = zeros(min(Dmax,t-1),1);
+        for dj=(1:min(Dmax,t-1))        % Prevents t<0 call - valid?
+            tprime = ((t-dj+1):t);
+            [sigmaterm(dj),sigmaindex(dj)] = max( sigmati(t-dj,:) + logA(:,j)' );
+            sigmaterm(dj) = sigmaterm(dj) + logDpdf(dj,j) + sum(logb(j,tprime));
+            %sigmaterm(dj) = sigmaterm(dj) * Dpdf{j}(dj,Dparams{j}{:}) * prod(b(j,tprime));
+        end;
+        [sigmati(t,j),maxdj(t,j)] = max(sigmaterm);
+        maxj(t,j) = sigmaindex(maxdj(t,j));
+    end;
+end;
+
+% Termination
+[logP,q(N)] = max(sigmati(end,:));
+
+% Path (state-sequence) backtracking
+t = (N-1);
+while (t > 1)
+    q( t:(-1):max(1, t - maxdj(t,q(t+1)) + 1) ) = maxj(t,q(t+1));
+    t = t - maxdj(t,q(t+1));
+end;
+
+% Check output arguments
+if (nargout<2)
+    clear('P');
+end;

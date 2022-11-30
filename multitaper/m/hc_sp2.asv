@@ -1,0 +1,71 @@
+function [hc,params]=hc_sp2(dat1,dat2,trig,offset,duration,rate,opt_str);
+%function [hc,params]=hc_sp2(dat1,dat2,trig,offset,duration,rate,opt_str);
+%
+% Generate normalised histogram count of occurances of significant
+% coherence over trials (MTM implementation)
+%
+% Constant length segments only.
+%
+% Input parameters
+%       As (mt_sp2)
+%
+% Output parameters
+%       hc          Normalised histogram count
+%       params      Parameters structure from MTM routines
+%
+%function [hc,params]=hc_sp2(mt_sp2(dat1,dat2,trig,offset,duration,rate,opt_str);
+
+% Check input parameters
+if (nargin~=7)
+    error(' Incorrect number of input parameters');
+end;
+
+% Default parameters
+NW=0;               % Time-bandwidth product (periodogram for NW=0)
+
+% Extract multitaper time-bandwidth product from options string
+mt_opt=[];
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'W'                    % Time-bandwidth product
+        	NW=str2num(optarg);
+            if (isempty(NW))
+                error(['Error in option argument -- W' optarg]);
+            end;
+        otherwise                   % Options for wavelet analysis
+            mt_opt=[mt_opt ' ' opt];
+    end;
+end;
+
+
+% Convert (msecs -> samples)
+offset=offset*rate/1000;
+duration=duration*rate/1000;
+
+% Remove trials out of range
+trig=trig(trig+offset>0 & trig+offset+duration<=length(dat1));
+
+% Generate tapers
+if (NW~=0)
+    [v,dk]=dpss(duration,NW);
+else
+    v=ones(dura); dk=1;
+end;
+
+% Generate single segment estimators
+trigcount=length(trig);
+for ind=1:trigcount
+    disp(['Trig ' int2str(ind) ' of ' int2str(trigcount)]);
+    trange=trig(ind)+offset+[0:duration-1];
+    [sp11,sp22,sp12,params]=mt_sp(dat1(trange),dat2(trange),rate,opt_str,v,dk);
+    coh=abs(sp12).^2./(sp11.*sp22);
+    R95=(1-0.05.^(1./params.L));
+    if (ind==1)
+        hc=zeros(length(params.freqs),1);
+    end;
+    hc=hc+(coh>=R95)/trigcount;
+end;

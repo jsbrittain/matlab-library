@@ -1,0 +1,132 @@
+function [p11,bs11,p22,bs22,p12,bs12,bs21,params]=bi_sp(dat1,dat2,rate,opt_str,v,dk)
+%function [p11,bs11,p22,bs22,p12,bs12,bs21,params]=bi_sp(dat1,dat2,rate,opt_str,[v,dk])
+%
+% Bispectral analysis
+%
+% Input parameters
+%       dat1        Time series 1
+%       dat2        Time series 2
+%       rate        Sampling rate
+%       opt_str     Options string
+%                       r<0,1,2>    rectify (none, ch1, ch1&2)
+%                       W           multitaper bandwidth (default: 6, 0=none)
+%                       f           maximum analysis frequency (default: Nyquist)
+%       w           (opt) Data tapers
+%       dk          (opt) Associated taper weights
+%
+%function [p11,bs11,p22,bs22,p12,bs12,bs21,params]=bi_sp(dat1,dat2,rate,opt_str,[v,dk]);
+
+% Check input parameters
+if ((nargin~=4) & (nargin~=6))
+    error(' Incorrect number of input parameters');
+end;
+
+% Default parameters
+W=6;                        % multitaper bandwidth
+maxf=rate/2;                % maximum analysis frequency (Nyquist)
+multitaper=true;            % perform multitaper analysis
+
+% Parse options string
+options=deblank(opt_str);
+opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'r'                    % Rectify channels
+        	n=str2num(optarg);
+			if ((n<0) | (n>2))
+			    error(['Error in option argument -- r' optarg]);
+			end;  
+			if (n~=1)   % Rectify ch 1.
+			    dat1=abs(dat1-mean(dat1));
+			end;  
+			if (n>=1)   % Rectify ch 2.
+			    dat2=abs(dat2-mean(dat2));
+			end;
+        case 'W'
+            W=str2num(optarg);
+            if (isempty(W))
+                error(['Error in option argument -- W' optarg]);
+            end;
+            if (W==0)
+                multitaper=0;
+            end;
+        case 'f'
+            
+            error(' Cannot truncate analysis (yet) due to access requirements to P(f1+f2)');
+            
+            maxf=str2num(optarg);
+            if (isempty(W))
+                error(['Error in option argument -- f' optarg]);
+            end;
+        otherwise                   % Options for wavelet analysis
+            error(['Unknown option -- ' opt]);
+    end;
+end;
+
+% Get data parameters
+N=length(dat1);
+
+% Choose tapers
+if (~exist('v'))
+	% Generate Discrete Prolate Spheroidal Sequences (DPSS)
+	if (multitaper)
+        [v,dk]=dpss(N,W);     % 3rd part routine (Breitenberger)
+	else
+        v=ones(N,1);
+	end;
+    % Determine weighting scheme
+    dk=dk/sum(dk);
+end;
+% Determine no. tapers
+tapercount=size(v,2);
+
+% Determine frequency range and maximum frequency
+freqs=rate*[0:N/2]/N;
+fmax=min(floor(N/2),find(abs(freqs-maxf)==min(abs(freqs-maxf)))); % pts - half normal range (need f1+f2 terms)
+freqs=freqs(1:fmax);
+
+% Allocate memory
+p11=zeros(fmax,1);
+p22=zeros(fmax,1);
+p12=zeros(fmax,1);
+
+bs11=zeros(fmax/2);
+bs22=zeros(fmax/2);
+bs12=zeros(fmax/2);
+bs21=zeros(fmax/2);
+
+% Zero mean data
+dat1=dat1-mean(dat1);
+dat2=dat2-mean(dat2);
+
+% Form multitaper estimate
+for taper=1:tapercount
+    % Fourier Transform tapered data and truncate
+    F1=fft(v(:,taper).*dat1);
+    F2=fft(v(:,taper).*dat2);
+    % Calculate periodograms
+    p11=p11+dk(taper)*abs(F1(1:fmax)).^2;
+    p22=p22+dk(taper)*abs(F2(1:fmax)).^2;
+    p12=p12+dk(taper)*(F1(1:fmax).*conj(F2(1:fmax)));
+    % Evaluate bispectra (pointwise - can we speed this up???)
+    for f1 = (1:fmax/2)
+        for f2 = (1:fmax/2)
+            bs11(f1,f2) = bs11(f1,f2)+dk(taper)*(F1(f1)*F1(f2)*conj(F1(f1+f2)));    % F1 * F1 * F1
+            bs22(f1,f2) = bs22(f1,f2)+dk(taper)*(F2(f1)*F2(f2)*conj(F2(f1+f2)));    % F2 * F2 * F2
+            bs12(f1,f2) = bs12(f1,f2)+dk(taper)*(F1(f1)*F2(f2)*conj(F2(f1+f2)));    % F1 * F1 * ( F2 )
+            bs21(f1,f2) = bs21(f1,f2)+dk(taper)*(F2(f1)*F1(f2)*conj(F1(f1+f2)));    % F2 * F2 * ( F1 )
+        end;
+    end;
+end;
+
+% Determine equivalent no. segments
+L=1/sum(dk.^2);
+
+% Assign output parameters
+params.W=W;
+params.freqs=freqs;
+params.fmax=maxf;
+params.tapercount=tapercount;
+params.L=L;

@@ -1,0 +1,137 @@
+function [WCo,cl,S1,S2,S12]=wlCohSingleTrial(W1,W2,wlparam,rate,nco,ncy,opt_str)
+%function [WCo,cl,[S1],[S2],[S12]]=wlCohSingleTrial(W1,W2,wlparam,rate,nco,ncy)
+%
+% Calculated single trial wavelet coherence
+% Based on Lachaux et al. 2002.
+% Wavelet parameters are assumed the same for both transforms
+%
+% Input parameters
+%   W1          Wavelet transform for time series 1
+%   W2          Wavelet transform for time series 2
+%   wlparam     Wavelet parameters
+%   rate        Sampling rate
+%   nco         No. oscillations in wavelet
+%   ncy         No. oscillations in integration window
+%   opt_str     Options string. Options:
+%                   w - Fixed integration window
+%
+% Ref:  Lachaux J-P, et al. (2002) Estimating the time-course of coherence
+%       between single-trial brain signals: an introduction to wavelet
+%       coherence. Neurophysiol. Clin. 32:157-174
+%
+%function [WCo,cl,[S1],[S2],[S12]]=wlCohSingleTrial(W1,W2,wlparam,rate,nco,ncy)
+
+% Check input parameters
+spectout=0;
+crossout=0;
+if (nargin<6)
+    error('Not enough input parameters');
+end;
+if (nargin<7)
+    opt_str='';
+end;
+if (nargout>2)
+    spectout=1;
+end;
+if (nargout>4)
+    crossout=1;
+end;
+
+% Default parameters
+fixed_window=0;
+details=0;
+
+% Parse options string
+options=deblank(opt_str);
+opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 'd'                    % Display progress
+            details=1;
+        case 'w'                    % Linear scaling, pass on parameter
+            fixed_window=1;
+    	otherwise
+            error([' (wlCohSingleTrial) Illegal option: ' opt]);
+    end;
+end;
+
+% Common parameters
+dt=1/rate;
+N=size(W1,2);
+
+% Determine fixed window parameters once at beginning
+if (fixed_window)
+    delta=ncy;
+    r=fix(rate*delta/2);
+    m=2*r+1;
+    
+    % Make sure ncy not too large
+    if (m>N)
+        error(' (wlCohSingleTrial.m) Integration window too large for dataset');
+    end;
+end;
+
+% Reserve variable space
+WCo=zeros(size(W1));
+if (spectout)
+    S1=zeros(size(W1));
+    S2=zeros(size(W1));
+    if (crossout)
+        S12=zeros(size(W1));
+    end;
+end;
+
+% Form time-limited auto/cross-spectra
+for f=wlparam.freqs
+    
+    % Frequency parameters
+    if (details)
+        disp(['Calculating coherence for frequency ' num2str(f)]);
+    end;
+    fn=dsearchn(wlparam.freqs',f);
+	if (~fixed_window)
+        % Filter parametets
+        delta=ncy/f;
+        r=fix(rate*delta/2);
+        m=2*r+1;
+	end;
+    
+    % Do not process unrequired frequencies
+    if (m>N)
+        continue;
+    end;
+    
+    % Smoothed auto/cross-spectra
+    SW11=dt*localsum(abs(W1(fn,:)).^2,m);
+    SW22=dt*localsum(abs(W2(fn,:)).^2,m);
+    SW12=dt*localsum(W1(fn,:).*conj(W2(fn,:)),m);
+    
+    % Form coherence bands within filter range
+    subrange=r+1:N-r;    
+    SW11=SW11(subrange);
+    SW22=SW22(subrange);
+    SW12=SW12(subrange);
+    WCo(fn,subrange)=(abs(SW12).^2)./(SW11.*SW22);
+    
+    % Collate spectra if required
+    if (spectout)
+        S1(fn,subrange)=SW11;
+        S2(fn,subrange)=SW22;
+        if (crossout)
+            S12(fn,subrange)=SW12;
+        end;
+    end;
+    
+    % Significance level (fixed window/changing significance)
+    if (fixed_window)
+        cl(fn)=wl_bicoh_sig(nco,f*ncy);
+	end;
+    
+end;
+
+% Significance level (changing window/static confidence limit)
+if (~fixed_window)
+    cl=wl_bicoh_sig(nco,ncy);
+end;

@@ -1,0 +1,74 @@
+function [E,H,Skij,Ski]=pdist_esearch(X,w1,w2,Pref,use_sparse)
+
+N=size(X,1);                % Time points
+m=size(X,2);                % Embedding dimension
+M=size(X,3);                % Channels
+
+% Epsilon search parameters
+lims=[0 10];               % Search boundary
+
+% Allocate memory
+if (use_sparse)
+    error(' Sparse matrix not yet supported');
+    E=sparse(M,N);             
+    H=sparse(N,N);
+    Skij=sparse(M,N,N);
+    Ski=sparse(M,N);
+else
+    E=zeros(M,N);             
+    H=zeros(N);
+    Skij=zeros(M,N,N);
+    Ski=zeros(M,N);
+end;
+
+% Probability distance, Epsilson estimation, H-count
+for k=(1:M)
+    for i=(1:N)
+        % Probability distance (Stam 2005, Eq.2)
+        jj=(1:N); jj=jj(w1<abs(i-jj)); jj=jj(abs(i-jj)<w2);
+        Xi=repmat(X(i,:,k),length(jj),1);
+        
+        % Epsilon search (bounded)
+        lims=[0 100]; exitflag=-1;
+        while (exitflag~=1)
+            [E(k,i),feval,exitflag]=fminbnd(@(x) pdist_pref(x,X,Xi,jj,w1,w2,k,Pref),lims(1),lims(2));
+            if (abs(E(k,i)-lims(2))<0.001*lims(2))
+              exitflag=-1;
+            end;
+            lims(2)=lims(2)/10;
+        end;
+        
+        %ee=(0.01:0.01:5);
+        %for ind=(1:length(ee))
+        %  p(ind)=sum(((ee(ind)-sqrt(sum((Xi-X(jj,:,k)).^2,2)))>0),1)/(2*(w2-w1));
+        %end;
+        %polyval(polyfit
+        
+        % Check epsilon bounds
+        if (E(k,i)==lims(1))
+            warning([' Lower bound (' num2str(lims(1)) ') hit on epsilon search.']);
+        end;
+        if (E(k,i)==lims(2))
+            warning([' Upper bound (' num2str(lims(2)) ') hit on epsilon search.']);
+        end;
+        
+        % H-count (much quicker if computed now)
+        H(i,jj)=H(i,jj)+((E(k,i)-sqrt(sum((Xi-X(jj,:,k)).^2,2)))>=0).';
+    end;
+end;
+
+% Synchonisation likelihood (requires H(i,j))
+for k=(1:M)
+    for i=(1:N)
+        % Probability distance (Stam 2005, Eq.2)
+        jj=(1:N); jj=jj(w1<abs(i-jj)); jj=jj(abs(i-jj)<w2);
+        Xi=repmat(X(i,:,k),length(jj),1);
+        
+        % Synchronisation liklihood (k,i,j)
+        index=(sqrt(sum((Xi-X(jj,:,k)).^2,2)) <= E(k,i));
+        Skij(k,i,jj(index))=(H(i,jj(index))-1)/(M-1);
+        
+        % Synchronisation liklihood (k,i)
+        Ski(k,i)=sum(Skij(k,i,jj))/(2*(w2-w1));
+    end;
+end;

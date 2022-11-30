@@ -1,0 +1,80 @@
+function [prior,A,B] = hmm_estimatemodel(O,prior,A,B,method)
+%function [prior,A,B] =  = hmm_estimatemodel(O,prior,A,B,[method])
+%
+% Viterbi algorithm
+%
+% Returns the most likely set of states for a given model and observation
+% set (dynamic programming approach; non-unique).
+%
+% Input parameters
+%       O             Observation sequence
+%                       ( 1 x N )
+%       prior         Initial state distribution
+%                       ( Q x 1 )
+%       A             Transition probability matrix
+%                       ( Q x Q )
+%       B             Emission probability matrix
+%                       ( Q x M )
+%
+% Output arguments
+%       prior         Initial state distribution
+%       A             Transition probability matrix
+%       B             Emission probability matrix
+%
+% Reference
+%   Rabiner, K. R. (1989) A Tutorial on Hidden Markov Models and Selected
+%   Applications in Speech Recognition. Proceedings of the IEEE, 77(2):
+%   257-286.
+%
+%function [prior,A,B] =  = hmm_estimatemodel(O,prior,A,B,[method])
+
+% Determine input parameters
+if  (~exist('method','var'))
+    method = 1;
+end;
+
+% Determine data parameters
+N=length(O);
+Q=size(A,1);
+M=size(B,2);
+
+% Reserve memory space
+epsilontij = zeros(N-1,Q,Q);
+gammati = zeros(N-1,Q);
+
+% Fetch initial fwd-bwd coefficients
+[~,alphati,betati] = hmm_probobs(O,prior,A,B,method);
+
+% Iterate estimation procedure
+reps=10;
+for rep = (1:reps)
+
+    % Calculate epsilon ( P(q_t=S_i, q_{t+1}=S_j | O, (prior, A, B)) )
+    for t=(1:(N-1))
+        for i=1:Q
+            for j=1:Q
+                epsilontij(t,i,j) = alphati(t,i)*A(i,j)*B(j,O(t+1))*betati(t+1,j);
+            end;
+        end;
+        
+        epsilontij(t,:,:) = epsilontij(t,:,:) / sum(sum(epsilontij(t,:,:)));
+        gammati(t,:) = sum(epsilontij(t,:,:),3);
+    end;
+    
+    % Update parameters
+    prior = gammati(1,:);
+    for i=(1:Q)
+        sumgammati = sum(gammati(:,i));
+        for j=(1:Q)
+            A(i,j) = sum(epsilontij(:,i,j)) / sumgammati;
+        end;
+        for k=(1:M)
+            B(i,k) = sum(gammati(O(1:(end-1))==k,i)) / sumgammati;
+        end;
+    end;
+    
+    % Update display
+    [logp,alphati,betati] = hmm_probobs(O,prior,A,B,method);
+    disp([' Iteration ' num2str(rep) ' of ' num2str(reps) ' completed (log p=' num2str(logp) ').']);
+
+end;

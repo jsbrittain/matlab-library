@@ -1,0 +1,34 @@
+function [f,Pf,t,Pt]=kf_tfmfb(f,t,cl,f_max,Q);
+%function [f,Pf,t,Pt]=kf_tfmfb(f,t,cl,f_max,Q);
+%
+% Hybrid Kalman filter and Fourier based analysis
+% Kalman filtering of Fourier-based coherence estimates over trials
+% with forward-backward smoothing.
+% Takes f and t matrices as input.
+%
+% Reduced vector implementation returning frequency-domain parameters,
+% associated error covariance parameters, and optionally the set of
+% time-domain parameters and associated error-covariance parameters.
+%
+%function [f,Pf,t,Pt]=kf_tfmfb(f,t,cl,f_max,Q);
+
+% Check parameter validity
+if (nargin<3)
+    error('You must provide at least the first three input arguments.');
+end;
+if ((nargout~=2) & (nargout~=4))
+    error('Number of output arguments must be either 2 or 4.');
+end;
+if (nargout==4)
+    tout=1;     % Assess time-domain parameters
+else
+    tout=0;
+end;
+
+% Perform forward and backward recursions
+[f1,Pf1,t1,Pt1]=kf_tfm(f,t,cl,f_max,Q);
+[f2,Pf2,t2,Pt2]=kf_tfm(flipdim(f,3),flipdim(t,3),flipdim(cl,1),f_max,Q);
+
+% Combine into a single smoothed estimate
+for ind=1:size(f1,3)
+    f=f1(:,:,ind)

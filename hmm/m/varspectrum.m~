@@ -1,0 +1,14 @@
+function S = varspectrum(A,freqs,rate,s2)
+
+m=size(A,1);
+p=size(A,3);
+S=zeros(m,m,length(freqs));
+
+for n=(1:length(freqs))
+    H = eye(m);
+    for k=(1:p)
+        H = H + A(:,:,k)*exp(-1i*2*pi*freqs(n)/rate*k);
+    end;
+    S(:,:,n) = inv(H)*s2*(inv(H)');
+    S(:,:,n) = S(:,:,n) - diag(i*imag(dig(S(:,:,n))));
+end;

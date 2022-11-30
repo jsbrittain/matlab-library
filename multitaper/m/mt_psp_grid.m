@@ -1,0 +1,132 @@
+function mt_psp_grid(sp11,sp22,sp12,params,opt_str,chlabels)
+%function mt_psp_grid(sp11,sp22,sp12,params,opt_str,[chlabels])
+%
+% Grid display spectra, coherence and phase (by default)
+%
+% Takes redundant cell array input, ie.
+%   sp11{1,1}, ... , sp11{1,M},
+%    sp11{2,2}, ... , sp11{2,M},
+%     sp11{3,3}, ... , sp11{3,M},
+%          |        |       |
+%       sp11{M-1,M-1}, sp11{M-1,M},
+%       sp11{M,M}
+%
+% Input parameters
+%   sp11        Cell array of spectra {M x M}
+%   sp22        Cell array of spectra {M x M}
+%   sp12        Cell array of spectra {M x M}
+%   params      Cell array of parameters {M x M}
+%   opt_str     (opt) Options string
+%                 s<n>  Smooth output over <n> Hz
+%                 f<n>  Plot frequencies to <n> Hz
+%                 l     Linear spectra
+%                 c     Upper limit on coherence plot
+%                 m     Minimal (no lower-diagonal)
+%   chlabels    (opt) Cell array of channel labels
+%
+%function mt_psp_grid(sp11,sp22,sp12,params,opt_str,[chlabels])
+
+% Check input data
+if ((~iscell(sp11)) | (~iscell(sp22)) | (~iscell(sp12)) | (~iscell(params)))
+    error(' Input must be cell arrays.');
+end;
+if (sum([diff(size(sp11)) diff(size(sp22)) diff(size(sp12)) diff(size(params))])~=0)
+    error(' Input must be square cell arrays.');
+end;
+
+% Default parameters
+smoother=0;
+logspectra=true;
+%maxf=params{1,1}.rate/2;
+maxf=params{1,1}.freqs(end);
+maxcoh=1;
+holdon = false;
+colstr = 'k';
+minimal = false;
+
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                    % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));          % Determine option argument.
+	switch (opt(1))
+	    case 's'                        % Smooth output
+            smoother=str2num(optarg);
+        case 'l'                        % Linear-spectra
+            logspectra=false;
+        case 'f'                        % Maximum plot frequency
+            maxf=str2num(optarg);
+        case 'c'                        % Maximum coherence limit
+            maxcoh=str2num(optarg);
+        case 'h'                        % Hold on
+            holdon = true;
+        case 'k'                        % Colour style
+            colstr = optarg;
+        case 'm'
+            minimal = true;
+            
+    end;
+end;
+
+% Convert smooth parameter from Hz to (frequency) samples
+smoother=round(smoother/diff(params{1,1}.freqs([1 2])));
+if (smoother<1)
+    smoother=1;     % Null smoother
+end;
+
+% Determine data parameters
+M=length(sp11);
+
+% Check channel labels
+if (~exist('chlabels'))
+    chlabels = {};
+end;
+if (isempty(chlabels))
+    for ind=(1:M)
+        chlabels{ind}=num2str(ind);
+    end;
+end;
+
+% Plot grid-array
+if (~holdon)
+    figure;
+end;
+for ch1=(1:M)
+    for ch2=(1:M)
+        if (ch1==ch2)       % Diagonal (spectra)
+            subplot(M,M,(ch1-1)*M+ch2); hold on;
+            if (holdon)
+                hold('on');
+            end;
+            if (logspectra)
+                plot(params{ch1,ch2}.freqs,smooth(log10(sp11{ch1,ch2}),smoother),colstr);
+            else
+                plot(params{ch1,ch2}.freqs,smooth(sp11{ch1,ch2},smoother),colstr);
+            end;
+            xlim([0 maxf]); title([num2str(ch1) ': ' chlabels{ch1}]);
+        elseif (ch1<ch2)    % Upper quadrant (Coherence)
+            subplot(M,M,(ch1-1)*M+ch2);
+            if (holdon)
+                hold('on');
+            end;
+            params0 = params{ch1,ch2}; params0.L = params0.L*smoother;
+            h = mt_psp_coh(smooth(sp11{ch1,ch2},smoother),smooth(sp22{ch1,ch2},smoother),smooth(sp12{ch1,ch2},smoother),params0,maxf);
+            set(h,'color',colstr);
+            box('on'); xlim([0 maxf]); ylim([0 maxcoh]); title(''); xlabel('');
+        elseif (~minimal)               % Lower quandrant (Phase)
+            subplot(M,M,(ch1-1)*M+ch2);
+            if (holdon)
+                hold('on');
+            end;
+            if ( 0 )        % Phase
+                h = mt_psp_ph(smooth(sp12{ch2,ch1},smoother),params{ch2,ch1},maxf,smooth(sp11{ch2,ch1},smoother),smooth(sp22{ch2,ch1},smoother));
+            else
+                h = mt_psp_q(params{ch2,ch1},smooth(sp11{ch2,ch1},smoother),smooth(sp22{ch2,ch1},smoother));
+            end;
+            set(h,'color',colstr); title(''); xlabel('');
+            %if (ch1==1)
+            %    ylabel(num2str(ch2));
+            %end;
+        end;
+    end;
+end;

@@ -1,0 +1,66 @@
+function [Ftest,chi2test,A] = granger_causality( x, y, p )
+%function [Ftest,chi2test,A] = granger_causality( x, y, p )
+%
+% Granger causality for two time-series
+%
+% Provides two equivalent tests of whether 'y' significantly predicts 'x' ( y -> x )
+%
+% For computation of Granger statistics:
+%  http://support.sas.com/rnd/app/examples/ets/granger/
+%
+% Makes use of third-part code ARFit (must be on Matlab path):
+%  T. Schneider and A. Neumaier, 2001: Algorithm 808: ARfit - A Matlab
+%    package for the estimation of parameters and eigenmodes of multivariate
+%    autoregressive models. ACM Trans. Math. Softw., 27, 58-65.
+%
+%function [Ftest,chi2test,A] = granger_causality( x, y, p )
+
+if (exist('arfit')~=2)
+    error(' Third-party software package ARFit must be on the Matlab path to use this function!');
+end;
+
+if (~exist('p','var'))
+    p = [];
+end;
+if (~isempty(p))
+    pmin = p;
+    pmax = p;
+else
+    pmin = 1;
+    pmax = 100;
+end;
+
+% Convert inputs to col vectors
+x = x(:);
+y = y(:);
+
+% Bivariate AR model fitting
+T = length(x);
+[w,A,C,SBC,FPE,th] = arfit([ x y ],pmin,pmax);      % Schwarz Bayesian Criterion (or BIC) for model order (p) selection
+p = size(A,2)/size(A,1);                            % Determine model order
+A = reshape(A,size(A,1),size(A,1),p);               % Reshape AR coefficients -> (d=2,d=2,p)
+
+% Calculate residuals
+u = zeros(size(x));
+e = u;
+for k = ((p+1):length(x))
+    % Residuals for x based on x and y regressors
+    %   x_t = c_1 + sum_{i=1}^p AR11(v)*x(k-v) + sum_{i=1}^p AR12(v)*y(k-v) + u_t
+    u(k) = w(1) - x(k) - sum( squeeze(A(1,1,:)).*x(k-(1:p)) ) - sum( squeeze(A(1,2,:)).*y(k-(1:p)) );
+    % Residuals for x based on x regressors only
+    e(k) = w(1) - x(k) - sum( squeeze(A(1,1,:)).*x(k-(1:p)) );
+end;
+% Sum-of-squared residuals
+RSS1 = sum( u.^2 );
+RSS0 = sum( e.^2 );
+
+% Test stat ~ F_{p,T-2p-1}
+Ftest.stat = ((RSS0-RSS1)/p)/(RSS1/(T-2*p-1));
+Ftest.v1 = p;
+Ftest.v2 = T-2*p-1;
+Ftest.p = 1 - fcdf(Ftest.stat,p,T-2*p-1);
+
+% Test stat ~ \chi^2_p
+chi2test.stat = T*(RSS0-RSS1)/RSS1;
+chi2test.v = p;
+chi2test.p = 1 - chi2cdf(chi2test.stat,p);

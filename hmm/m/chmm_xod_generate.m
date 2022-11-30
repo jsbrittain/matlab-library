@@ -1,0 +1,45 @@
+function [q] = chmm_xod_generate(prior,A,Drnd,Dparams,N)
+%function [q] = chmm_xod_generate(prior,A,Drnd,Dparams,N)
+%
+% Input parameters
+%       prior         Initial state distribution
+%                       ( Q x 1 )
+%       A             Transition probability matrix
+%                       ( Q x Q )
+%       Drnd          Random number generating function
+%                       ( ie. cell array of @gamrnd )
+%       Dparams       Random number generating function parameters
+%                       ( cell array of params )
+%       N             Sequence length (samples)
+%
+% Output argument
+%       S             State sequence
+%
+% Reference
+%   Rabiner, K. R. (1989) A Tutorial on Hidden Markov Models and Selected
+%   Applications in Speech Recognition. Proceedings of the IEEE, 77(2):
+%   257-286.
+%
+%function [q] = chmm_xod_generate(prior,A,Drnd,Dparams,N)
+
+% Reserve memory
+q=ones(1,N);
+O=ones(1,N);
+
+% Recursively estimate time-series
+t=1;
+% Prior
+[pq,inq]=sort(prior);
+q(t)=inq(find(rand(1)<cumsum(pq),1,'first'));
+td = max(1,round(Drnd{q(t)}(Dparams{q(t)}{:})));
+q(t+[1:(td-1)]) = q(t);
+t=t+td;
+% Loop
+while (t<N)
+    [pq,inq]=sort(A(q(t-1),:));
+    q(t)=inq(find(rand(1)<cumsum(pq),1,'first'));
+    td = max(1,round(Drnd{q(t)}(Dparams{q(t)}{:})));
+    q(t+[1:(td-1)]) = q(t);
+    t=t+td;
+end;
+q=q(1:N);

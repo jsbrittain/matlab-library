@@ -1,0 +1,38 @@
+function mt_psp(sp,params);
+%function mt_psp(sp,params);
+%
+% Kalman-Fourier summary plotting routine for auto-spectra, coherence and phase
+%
+% Input parameters
+%       sp          Spectral matrix
+%       params      Parameters structure
+%
+%function mt_psp(sp,params);
+
+% Extract spectra, coherence and phase
+M=size(sp,3);
+flen=size(sp,1);
+
+fbb=reshape(sp(:,2,:),flen,M);
+coh=reshape(sp(:,4,:),flen,M);
+ph=angle(reshape(sp(:,3,:),flen,M));
+freqs=params.freqs;
+
+% Determine label
+if (params.Q==0)
+    label='(non-adaptive';
+else
+    label=['(adaptive Q=' num2str(params.Q) '%'];
+end;
+if (isfield(params,'NW'))
+    label=[label ', MTM NW=' num2str(params.NW)];
+end;
+label=[label ')'];
+
+% Plot spectral summary of adaptive method
+figure;
+subplot(2,2,1); kf_psp_a(sp,params,label);
+subplot(2,2,2); kf_psp_b(sp,params,label);
+subplot(2,2,3); kf_psp_
+subplot(2,2,4); kf_psp_coh(sp,params,label);
+%subplot(2,2,4); kf_psp_ph(sp,params,label);

@@ -1,0 +1,89 @@
+
+% Time-series
+T = 1e6;                            % Works best with large samples!
+x1=randn(T,1);                       % GPi Amplitude(?)
+y1=randn(T,1);                       % STN Amplitude(?)
+z1=angle(exp(1i*2*pi*rand(T,1)));    % Phase-difference(?)
+
+offsetlist = (-100:5:100);
+
+I = zeros(levels(3),length(offsetlist));
+Icond = zeros(levels(3),1);
+TExy = I; TEyx = I;
+for ind = (1:length(offsetlist))
+    disp([' ' num2str(offsetlist(ind)) ' samples']);
+    
+    x = circshift( x1, offsetlist(ind) );
+    y = y1; z = z1;
+    
+    % Truncate data range to exclude sparse regions - amplitude only
+    stdrange = 2;
+    if (~isempty(stdrange))
+        % Mean subtract
+        x = x-mean(x);
+        y = y-mean(x);
+        % Isolate deviant samples and reject
+        nokeep = (abs(x)>stdrange*std(x)) | (abs(y)>stdrange*std(y));
+        x = x(~nokeep);
+        y = y(~nokeep);
+        z = z(~nokeep);
+        T = length(x);
+    end;
+    
+    % Stratify --- uniform across range, so transform first if doing so (i.e. log-transform, etc.)
+    levels = [ 10 10 20 ];      % <-- a smaller stratification range can help sparse sampling
+    % Histogram without bias on x (amplitude)
+    x0 = x; x = ones(size(x0));     % use `ones` so that (x0>xq(k)) does not have to be >= which double counts
+    xq = quantile(x0,(0:1/levels(1):1.0));
+    for k = (1:levels(1))
+        x((x0>xq(k)) & (x0<=xq(k+1))) = k;
+    end;
+    % Histogram without bias on y (amplitude)
+    y0 = y; y = ones(size(y0));
+    yq = quantile(y0,(0:1/levels(1):1.0));
+    for k = (1:levels(1))
+        y((y0>yq(k)) & (y0<=yq(k+1))) = k;
+    end;
+    % Histogram without bias on z (using phase wrapping)
+    z=round((z-min(z))/range(z)*levels(3)+1); z(z==(levels(3)+1)) = 1;
+    phases = (-pi:2*pi/levels(3):(pi-2*pi/levels(3)))+pi/levels(3);
+
+    % Construct joint distribution (per sample)
+    pxyz=zeros(levels);
+    for t=(1:T)
+        pxyz(x(t),y(t),z(t)) = pxyz(x(t),y(t),z(t)) + 1;
+    end;
+    % 3D convolution -- this is a way of blurring the sparse sampling issue
+    %  warning: introduces edge effects in its current implementation
+    if ( false )
+        pxyz = convn( pxyz, ones(5), 'same' );
+    end;
+    % Histogram -> prob dist
+    pxyz = pxyz/sum(pxyz(:));
+
+    % MI per phase-difference bin
+    for n = (1:levels(3))
+        I(n,ind) = mi( pxyz(:,:,n) );
+    end;
+
+    % TE per phase-difference bin
+    for n = (1:levels(3))
+        TExy(n,ind) = te( y(z==n), x(z==n) );
+        TEyx(n,ind) = te( x(z==n), y(z==n) );
+    end;
+
+    % MI conditioned on phase-difference (z)
+    Icond(ind) = mi_cond( pxyz );
+end;
+
+% Plot
+figure;
+subplot(221);
+    cla; imagesc( offsetlist, phases, I ); colorbar;
+    xlabel('Offset (msecs)'); ylabel('\Delta\Phi');
+    title('Mutual information');
+subplot(222);
+    cla; imagesc( offsetlist, phases, TExy-TEyx ); colorbar;
+    set(gca,'clim',max(abs(get(gca,'clim')))*[-1 1]);
+    xlabel('Offset (msecs)'); ylabel('\Delta\Phi');
+    title('Transfer entropy directionality');

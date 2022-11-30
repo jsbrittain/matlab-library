@@ -1,0 +1,154 @@
+function [scaleS,wlparam]=wl_boxsmooth(S,wlparam,opt)
+%function smoothS=wl_boxsmooth(S,wlparam,opt)
+%
+% Input parameters
+%   S                       Wavelet spectrum
+%   wlparam                 Wavelet transform parameter structure
+%   opt                    Options string
+%       t<time_stretch>         Time stretch parameter
+%       s<scale_stretch>        Scale stretch parameter
+%       f<fmax>                 Maximum frequency for smoothing
+%
+% Output arguments
+%   smoothS                 Smoothed spectrum (Heisenberg box smoothing)
+%   wlparam                 Modified wavelet paramter structure
+%
+%function smoothS=wl_boxsmooth(S,wlparam,opt)
+
+% Determine input parameters
+if (nargin<2)
+    error(' Not enough input parameters');
+elseif (nargin<3)
+    opt_str='';
+end;
+
+% Default parameters
+time_stretch=1;
+scale_stretch=1;
+if (wlparam.linearscale)
+    fmax=max(wlparam.freqs);
+end;
+
+% Parse options string
+options=deblank(opt);
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+        case 't'                    % Time stretch parameter
+            time_stretch=str2num(optarg);
+            if (isempty(time_stretch))
+                error(' Specified time stretch parameter must be numeric');
+            end;
+        case 's'                    % Scale stretch parameter
+            scale_stretch=str2num(optarg);
+            if (isempty(scale_stretch))
+                error(' Specified scale stretch parameter must be numeric');
+            end;
+        case 'f'                    % Specify maximum frequency for smoothing
+            fmax=str2num(optarg);
+            if (~wlparam.linearscale)
+                error(' Maximum smoothing frequency may only be specified for linear scale analysis');
+            end;
+            if (isempty(fmax))
+                error(' Specified maximum smoothing frequency must be numeric');
+            end;
+        otherwise
+            error([' Unknown option: ' opt]);
+    end;
+end;
+
+% Determine data parameters
+N=size(S,2);
+if (wlparam.linearscale)
+	fmax_steps=find(wlparam.freqs>fmax);
+	if (isempty(fmax_steps))
+        fmax_steps=length(wlparam.freqs);
+	else
+        if (wlparam.linearscale)
+            fmax_steps=fmax_steps(1);
+        else
+            fmax_steps=fmax_steps(end);
+        end;
+	end;
+else
+    fmax_steps=length(wlpra
+
+% Reserve variable space
+timeS=zeros(size(S));           % Smooth all freqs in time
+scaleS=zeros(fmax_steps,N);     % Smooth up to fmax in scale
+
+% ------------------------------------------------------------
+% Time smoothing
+% Perform convolution via freq. domain multiplication (faster)
+% ------------------------------------------------------------
+
+if (time_stretch~=0)
+	% Zero pad data
+	npad=2.^ceil(log2(N));
+	% Determine frequency points for frequency domain convolution
+	omega=[1:fix(npad/2)];
+	omega=omega.*((2.*pi)/npad);
+	omega=[0 omega -omega(fix((npad-1)/2):-1:1)];
+	omega2=omega.^2;
+	% Calculate time smoothed spectra for each scale
+	for ind=1:size(S,1)
+        s=wlparam.scale(ind)*time_stretch;
+        F=exp(-.5*(s^2)*omega2);
+        smooth=ifft(F.*fft(S(ind,:),npad));
+        timeS(ind,:)=smooth(1:N);
+	end
+	% Ensure real spectra produce real valued smoothed spectra
+	if isreal(S)
+        timeS=real(timeS);
+	end
+else
+    % Do not perform time smoothing
+    timeS=S;
+end;
+
+% ---------------
+% Scale smoothing
+% ---------------
+
+if (scale_stretch~=0)
+	if (wlparam.linearscale)
+        % Linear scales - Heisenberg box smoothing
+        for ind=1:fmax_steps
+            % Construct frequency dependent filter
+            f=wlparam.freqs(ind);                                       % Frequency (Hz)
+            stddev_f=scale_stretch/(4*pi*wlparam.scale(ind));           % Std.dev. in freq.
+            envelope=exp(-((wlparam.freqs-f).^2)/(2*stddev_f^2))';      % Filter's gaussian envelope in freq.
+            hl=wlparam.df:3*stddev_f;                                   % Half-length of normalisation window (required for low freqs)
+            norm=sum(exp(-(([-fliplr(hl) 0 hl]).^2)/(2*stddev_f^2)));   % Normalisation coefficient (allows for parital filters)
+            envelope=envelope/norm;                                     % Normalise filter
+            for t=1:N
+                scaleS(ind,t)=sum(envelope.*timeS(:,t));                % Apply filter over scales to each time point
+            end;
+        end;
+	else
+		% Logarithmic scales - use constant decorrelation length
+		dj0=0.6;                                    % Scale decorrelation length
+		dj0steps=dj0*scale_stretch/(wlparam.dj*2);  % Half-width decorrelation steps (not whole)
+		for ind=1:fmax_steps %size(timeS,1)
+            number=0;
+            for ind2=1:fmax_steps %size(timeS,1);
+                if ((abs(ind-ind2)+.5)<=dj0steps)
+                    number=number+1;
+                    scaleS(ind,:)=scaleS(ind,:)+timeS(ind2,:);
+                elseif ((abs(ind-ind2)+.5)<=(dj0steps+1))
+                    fraction=mod(dj0steps,1);
+                    number=number+fraction;
+                    scaleS(ind,:)=scaleS(ind,:)+timeS(ind2,:)*fraction;
+                end;
+            end;
+            scaleS(ind,:)=scaleS(ind,:)/number;
+		end;
+	end;
+else
+    % Do not perform scale (freq) smoothing
+    scaleS=timeS(1:fmax_steps,:);
+end;
+
+% Modify wavelet parameter structure
+wlparam.freqs=wlparam.freqs(1:fmax_steps);

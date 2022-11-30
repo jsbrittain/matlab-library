@@ -1,0 +1,18 @@
+function psi=wl_morlet(nu,rate,w0);
+%function psi=wl_morlet(nu,rate,w0);
+%
+%  Wavelet: Morlet
+%  Time-domain
+%
+% Common parameters
+%   nu      Time
+%   rate    Sampling rate
+%
+% Additional parameters
+%   w0      Central frequency of the mother wavelet
+%
+
+psi0=(pi^(-1/4)).*exp(i*w0*nu).*exp(-(nu.^2)/2);
+norm=;
+
+psi=norm*psi;

@@ -1,0 +1,81 @@
+function [sp,params]=kftf_spm2w(dat1,dat2,trig,offset,duration,width,rate,seg_pwr,opt_str);
+%function [sp,params]=kftf_spm2w(dat1,dat2,trig,offset,duration,width,rate,seg_pwr,opt_str);
+%
+% Hybrid Kalman-Fourier analysis Time-Frequency (Type 2)
+%
+% Time-frequency analysis (perform analysis over offset sections of the
+% trials).
+%
+% Input parameters
+%       dat1            Data vector channel 1
+%       dat2            Data vector channel 2
+%       trig            Trigger times
+%       offset          Trial offset (portion of duration) (scalar or vector)
+%       duration        Trial duration (msec) (scalar or vector)
+%       width           Section width as a portion of duration (<=1)
+%       rate            Sampling rate
+%       seg_pwr         Segment power for Fourier transform
+%       opt_str         Options string
+%                           r<0|1|2>    Rectify channels
+%                           W<W>        Multitaper time-bandwidth (default 2.5, 0-trial avg.)
+%                           Q<q>        Process noise (default 0.1)
+%                           f<fmax>     Maximum frequency (default Nyquist)
+%                           s           Use Kalman smoother
+%                           n           Power normalise segments
+%                           k<n>        KF method (see implementations below; default 2)
+%                           j           Jackknife variance
+%                         { a           Alpha-rate adaptation of Jazwinski algorithm }
+%
+% Output parameters
+%       sp              Matrix of spectral components, cols: (3rd dim are trials)
+%                           1           Auto-spectra ch.1
+%                           2           Auto-spectra ch.2
+%                           3           Cross-spectra ch.1,2
+%                           4           Coherence
+%       params          Parameters structure
+%
+% KF implementations
+%       0 - null        Return periodogram estimates (parameters structure will not fully correlate)
+%       1 - kf          Time-domain filtering (Inaccurate distributional assumptions)
+%       2 - kflog       Log-transform filtering
+%       3 - ff          Exponential decay (forgetting-factor) (Q<q> becomes Q<delta(<1)>)
+%       4 - kfwnd       Sliding window (Q<q> becomes Q<K>, number of trials)
+%       5 - kfroot      Root-transform (optimal choice depending on analysis parameters)
+%
+%function [sp,params]=kftf_spm2w(dat1,dat2,trig,offset,duration,width,rate,seg_pwr,opt_str);
+
+% Check input parameters
+if (nargin~=9)
+    error(' Incorrect number of input arguments');
+end;
+if (nargout~=2)
+    error(' Incorrect number of output arguments');
+end;
+if (length(trig)<1)
+    error(' Empty trigger vector');
+end;
+
+% Determine data parameters
+sections=length(offset);
+
+% Convert msecs to samples
+duration=duration*rate/1000;
+% Ensure duration is a vector for recursion
+if (length(duration)~=length(trig))
+    duration=duration*ones(sections,1);
+end;
+
+% Perform KF-analysis within a time-slice
+for ind=1:sections
+    % Display progress
+    disp(['Optimal spectral tracking - TFR (' int2str(ind) ' of ' int2str(sections) ')']);
+    % Calculate offset and duration vectors (converted to msecs)
+    offset2=round(offset(ind)*duration(ind))*1000/rate;
+    duration2=floor(width*duration(ind))*1000/rate;
+    % Perform analysis
+    [sp(:,:,:,ind),params]=kf_spm2w(dat1,dat2,trig,offset2,duration2,rate,seg_pwr,[opt_str ' n']);
+end;
+
+% Form parameters structure
+params.offset=offset;
+params.duration=duration;

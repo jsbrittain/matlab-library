@@ -1,0 +1,22 @@
+function X=lagembed(x,l,m)
+%function X=lagembed(x,l,m)
+%
+%
+
+% Input Parameters
+%    dat
+%    l      Lag-embed time
+%    m      Embedding dimension
+%
+%function X=lagembed(x,l,m)
+
+k=size(x,2);                        % Input dimension
+len=(length(x)-(m-1)*l);            % Length of embedding vector
+X=zeros(len,m,k);
+for i=(1:len)
+    X(i,:)=x(i+(0:l:(m-1)*l));
+end;
+
+%tt=(0:l:(m-1)*l);
+%i=(1:len)';
+%X=x(repmat(i,1,m)+repmat(tt,len,1));

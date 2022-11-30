@@ -1,0 +1,35 @@
+function joystick=joystick_phaseisolate(joystick,phaseoffset,opt)
+%function joyphase=joystick_phaseisolate(joystick,phaseoffset,[opt])
+%
+% Isolate trials with specific phase componenets
+%
+% opt   0   all trials (default)
+%       1   target trials
+%       2   fixation trials
+%
+%function joyphase=joystick_phaseisolate(joystick,phaseoffset,[opt])
+
+% Check input parameters
+if (~exist('opt'))
+    opt=0;
+end;
+
+% Reject non-specific phase offsets
+n=1;
+while (n<length(joystick))
+    % Reject trials not conforming to criteria
+    if (joystick(n).phaseoffset~=phaseoffset)
+        joystick=[joystick(1:(n-1)) joystick((n+1):end)];
+    else
+        % Increment counter
+        n=n+1;
+    end;
+end;
+
+% Reject trial type
+switch (opt)
+    case 1,     % Target trials only
+        joyphase=joystick_targetisolate(joystick,phaseoffset);
+    case 2,     % Fixation trials only
+        joyphase=joystick_fixationisolate(joystick,phaseoffset);
+end;

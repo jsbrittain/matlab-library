@@ -1,0 +1,17 @@
+function [DF11,DF22,DF12,params]=df_sp0(dat1,dat2,duration,rate,opt_str)
+%[DF11,DF22,DF12,params]=df_sp0(dat1,dat2,duration,rate,opt_str)
+%
+% Multitaper analysis
+% Type 0
+%
+% Options as mt_sp2
+%
+%[DF11,DF22,DF12,params]=df_sp0(dat1,dat2,duration,rate,opt_str)
+
+% Determine segments
+offset=0;                       % Default offset
+dt=duration*rate/1000;          % msecs -> samples
+trig=[1:dt:length(dat1)-dt];    % Disjoint sections
+
+% Perform analysis over segments
+[DF11,DF22,DF12,params,[coh11,coh22,coh12]=df_sp2_coh(DF11,DF22,DF12);]=df_sp2(dat1,dat2,trig,offset,duration,rate,opt_str);

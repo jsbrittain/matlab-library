@@ -1,0 +1,147 @@
+function mc=mc_boxsmooth_scale(trials,secs,rate,df,frange,opt,smooth_opt,mother,wlopt);
+%function mc=mc_boxsmooth_scale(trials,secs,rate,df,frange,opt,smooth_opt,mother,wlopt);
+%
+% Function to perform monte-carlo simulations using scale oriented wavelet
+% transforms. This function performs monte-carlo simulations on simulated
+% gaussian white noise signals and returns the 95% confidence limit of
+% single trial wavelet coherence between two such such signals obtained
+% through Heisenberg box smoothing on the Time-Frequency plane.
+%
+%function mc=mc_boxsmooth_scale(trials,secs,rate,df,frange,opt,smooth_opt,mother,wlopt);
+
+% Parse smoothing options string
+options=deblank(smooth_opt);
+while (any(options))                % Parse individual options from string.
+	[opt1,options]=strtok(options);
+	optarg=opt1(2:length(opt1));      % Determine option argument.
+	switch (opt1(1))
+        case 'f'                    % Specify maximum frequency for smoothing
+            fmax=str2num(optarg);
+            if (isempty(fmax))
+                error(' Specified maximum smoothing frequency must be numeric');
+            end;
+    end;
+end;
+
+% Simulation parameters
+N=secs*rate;
+dt=1/rate;
+
+% Time vector
+time=1:dt:N*dt;
+
+% Determine COI region
+nbins=1000;
+[W1,wlparam1]=wlfTransform(randn(N,1),dt,df,frange,opt,mother,wlopt);
+sizeW1=size(W1);
+clear('W1');                                % Free up memory
+outsidecoi=zeros(sizeW1);
+for ind=1:length(wlparam1.scale)
+    outsidecoi(ind,:)=(wlparam1.scale(ind)<=1./(wlparam1.fourier_factor*wlparam1.coi));
+end;
+maxscale=1;
+for ind=fliplr(1:length(wlparam1.scale))     % NB: Scale vector reversed in freq based wavelet transform
+    if any(outsidecoi(ind,:)>0)
+        maxscale=ind;
+    else
+        sig95(ind)=NaN;
+    end;
+end;
+
+% Determine maximum freq confidence limit
+fmax_steps=find(wlparam1.freqs>=fmax);
+if (isempty(fmax_steps))
+    fmax_steps=length(wlparam1.freqs);
+else
+    fmax_steps=fmax_steps(1);
+end;
+
+% Reserve variable space
+scalepts=fmax_steps-maxscale+1;
+wlc=zeros(scalepts,nbins);
+
+% Perform Monte-Carlo analysis
+wb=waitbar(0,'Computing monte-carlo simulations...','Name','Wavelet coherence smoothing');
+for trial=1:trials
+    
+    % Generate data
+    dat1=randn(N,1);
+    dat2=randn(N,1);
+    
+    % Wavelet transform
+    [W1,wlparam1]=wlfTransform(dat1,dt,df,frange,opt,mother,wlopt);
+    [W2,wlparam1]=wlfTransform(dat2,dt,df,frange,opt,mother,wlopt);
+    
+    % Form spectra
+    S12=W1.*conj(W2);
+    S11=abs(W1).^2; clear('W1');
+    S22=abs(W2).^2; clear('W2');
+    
+    % Scale spectra
+    for ind=1:length(wlparam1.scale)
+        S11(ind,:)=S11(ind,:)/wlparam1.scale(ind);
+        S22(ind,:)=S22(ind,:)/wlparam1.scale(ind);
+        S12(ind,:)=S12(ind,:)/wlparam1.scale(ind);
+    end;
+    
+    % Smooth wavelet
+    [S12,wlparam]=wl_boxsmooth(S12,wlparam1,smooth_opt);
+    S12=abs(S12).^2;        % Reduces memory requirements (forms a real mag. squared spectra)
+    [S11,wlparam]=wl_boxsmooth(S11,wlparam1,smooth_opt);
+    [S22,wlparam]=wl_boxsmooth(S22,wlparam1,smooth_opt);
+    
+    % Generate coherence
+    warning off
+    WCo=S12./(S11.*S22);
+    warning on
+    
+    % Confidence limits (See Grinsted routines)
+    for ind=1:scalepts
+        cd=WCo(ind+maxscale-1,find(outsidecoi(ind+maxscale-1,:)));
+        cd=max(min(cd,1),0);                    % Ensure normalised [0,1]
+        cd=floor(cd*(nbins-1))+1;
+        for ind2=1:length(cd)
+            wlc(ind,cd(ind2))=wlc(ind,cd(ind2))+1;
+        end;
+    end;
+    
+    % Update progress bar
+    waitbar(trial/trials);
+end;
+close(wb);
+
+% Determine 95% confidence limit (See Grinsted routines)
+for ind=1:scalepts
+    % Bias
+    rsqy=((1:nbins)-.5)/nbins;
+    bias(ind)=sum(wlc(ind,:).*rsqy)/sum(wlc(ind,:));
+    % Variance
+    variance(ind)=sum(wlc(ind,:).*(rsqy.^2))/sum(wlc(ind,:))-bias(ind)^2;
+    % Confidence limit
+    rsqy=((1:nbins)-.5)/nbins;
+    ptile=wlc(ind,:);
+    idx=find(ptile~=0);
+    ptile=ptile(idx);
+    rsqy=rsqy(idx);
+    ptile=cumsum(ptile);
+    ptile=(ptile-.5)/ptile(end);
+    if (length(ptile)==1)           % All values fall in same bin (can occur for low freqs and trials==1)
+        R95(ind)=NaN;
+    else
+        R95(ind)=interp1(ptile,rsqy,.95);
+    end;    
+end;
+
+% Return wlparam with monte-carlo results
+mc.wlparam=wlparam;
+mc.wave_opt=opt;
+mc.smooth_opt=smooth_opt;
+mc.trials=trials;
+mc.freqs=wlparam.freqs(1:scalepts);
+mc.scale=wlparam.scale(1:scalepts);
+mc.wlc=wlc;
+mc.nbins=nbins;
+mc.scalepts=scalepts;
+mc.bias=bias;
+mc.variance=variance;
+mc.R95=R95;

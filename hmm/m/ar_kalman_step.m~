@@ -1,0 +1,42 @@
+function [yhat,evidence,ct,s2,s2y,K,q,S,rho,rhoavg] = ar_kalman_step(t,y,p,alpha,q,S)
+%
+% Stepwise Kalman AR-filter
+%
+% Negative `alpha' rate is interpreted as the (negative) static noise
+% covariance matrix ( -W ; can be scalar or matrix form ).
+%
+
+% (p-dimension) time-series vector
+Ft = -(y((t-1):(-1):(t-p)));                                    % Regression onto time-series
+yhat = Ft*q;                                                    % `a prior' state estimate
+ert = (y(t)-yhat(t));                                           % State estimate error
+
+% Evidence (before Jazwinski)
+Wt = ct * eye(p);
+s2ev = s2 + Ft*S*(Ft.') + Ft*Wt*(Ft.');                         % Estimated prediction variance
+evidence = exp(-((y(t)-yhat).^2)./(2*s2ev));                    % PDF at y given N(yhat,s2y)
+
+% Update state noise covariance through Jazwinski's algorithm
+if ( alpha < 0 )
+    % Static state noise covariance
+    ct = -alpha;
+    Wt = ct * eye(p);
+else
+    % Jazwinski algorithm
+    s2q0 = s2 + Ft*S*(Ft.');                                    % Estimated prediction variance (assumes q=0)
+    ct0 = ct;
+    ct = (ert^2-s2q0)/(Ft*(Ft.')); if (ct<0), ct=0; end;        % Learning rate
+    ct = alpha*ct0+(1-alpha)*ct;                                % Smoothed learning rate
+    Wt = ct * eye(p);                                           % Isotropic (c.I) matrix
+end;
+
+% Kalman filter equations
+s2y = s2 + Ft*S*(Ft.') + Ft*Wt*(Ft.');                          % Estimated prediction variance
+K = ((S + Wt)*(Ft.'))/s2y;                     % Kalman gain
+q = q + K*ert;                                 % State mean (AR coefficients)
+S = S + Wt - K*Ft*(S + Wt);                                         % State covariance
+
+% Effective learning rate
+SnI = S(:,:,t-1) + ct(t)*eye(p);
+rho(:,:,t) = SnI/s2y(t);
+rhoavg(t) = trace(SnI)/s2y(t)/p;

@@ -1,0 +1,91 @@
+function df_psp_coh(coh11,coh22,coh12,params,maxf)
+%function df_psp_coh(coh11,coh22,coh12,params,maxf)
+%
+% Summary plot of dual-frequency coherence between two processes
+%
+% Input parameters
+%       coh11       Dual-frequency auto-coherence ch.1
+%       coh22       Dual-frequency auto-coherence ch.2
+%       coh12       Dual-frequency cross-coherence ch.1,2
+%       params      Parameters structure
+%
+%function df_psp_coh(coh11,coh22,coh12,params,maxf)
+
+if (~exist('maxf','var'))
+    maxf=[];
+else
+    if isfield(
+        fmax=params.fmax;
+    end;
+end;
+
+% Determine 95% significance level
+freqs=params.freqs;
+Kprime=params.L;
+R95=1-0.05^(1/(Kprime-1));
+
+% Plot DF coherence
+figure;
+cutoff=find(abs(freqs-fmax)==min(abs(freqs-fmax)));
+freqs = freqs(1:cutoff);
+coh11 = coh11(1:cutoff,1:cutoff);
+coh22 = coh22(1:cutoff,1:cutoff);
+coh12 = coh12(1:cutoff,1:cutoff);
+plotconflimit=false;
+
+subplot(2,2,1);
+imagesc(freqs,freqs,(coh11));
+colorbar;
+if (plotconflimit)
+    hold on;
+    [~,h]=contour(freqs,freqs,(coh11>=R95),1,'k');
+    set(h,'linewidth',4);
+end;
+xlabel('Freq (Hz)'); ylabel('Freq (Hz)');
+set(gca,'ydir','normal');
+set(gca,'PlotBoxAspectRatio',[1 1 1]);
+if (~isempty(maxf)), xlim([0 maxf]); ylim([0 maxf]); end;
+title('DF coherence ch.1');
+
+subplot(2,2,2);
+imagesc(freqs(1:cutoff),freqs(1:cutoff),(coh22(1:cutoff,1:cutoff)));
+colorbar;
+if (plotconflimit)
+    hold on;
+    [~,h]=contour(freqs(1:cutoff),freqs(1:cutoff),(coh22(1:cutoff,1:cutoff)>=R95),1,'k');
+    set(h,'linewidth',4);
+end;
+xlabel('Freq (Hz)'); ylabel('Freq (Hz)');
+set(gca,'ydir','normal');
+set(gca,'PlotBoxAspectRatio',[1 1 1]);
+if (~isempty(maxf)), xlim([0 maxf]); ylim([0 maxf]); end;
+title('DF coherence ch.2');
+
+subplot(2,2,3);
+imagesc(freqs(1:cutoff),freqs(1:cutoff),(coh12(1:cutoff,1:cutoff)));
+colorbar;
+if (plotconflimit)
+    hold on;
+    [~,h]=contour(freqs(1:cutoff),freqs(1:cutoff),(coh12(1:cutoff,1:cutoff)>=R95),1,'k');
+    set(h,'linewidth',4);
+end;
+ylabel('Freq ch.2 (Hz)'); xlabel('Freq ch.1 (Hz)');
+set(gca,'ydir','normal');
+set(gca,'PlotBoxAspectRatio',[1 1 1]);
+if (~isempty(maxf)), xlim([0 maxf]); ylim([0 maxf]); end;
+title('DF coherence ch.1,2');
+
+subplot(2,2,4);
+plot(freqs,abs(diag(coh12)),'k',freqs,R95*ones(size(freqs)),'k--');
+xlim(freqs([1 end]));
+title('Stationary coherence ch.1,2');
+if (~isempty(maxf)), xlim([0 maxf]); end;
+xlabel('Freq (Hz)');
+
+% Set clim
+cmax = max([max(coh11-diag(diag(coh11))) max(coh22-diag(diag(coh22)))]);
+ymax = max(coh12(:));
+subplot(2,2,1); set(gca,'clim',[0 cmax]);
+subplot(2,2,2); set(gca,'clim',[0 cmax]);
+subplot(2,2,3); set(gca,'clim',[0 ymax]);
+subplot(2,2,4); ylim([0 ymax]);

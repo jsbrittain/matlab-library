@@ -1,0 +1,112 @@
+function [sp,params]=kf_sp2(dat1,dat2,trig,offset,duration,width,rate,opt_str);
+%function [sp,params]=kf_sp2(dat1,dat2,trig,offset,duration,width,rate,opt_str);
+%
+% Type 2 spectral analysis of variable duration segments
+%
+% Input parameters
+%       dat1            Time series ch.1
+%       dat2            Time series ch.2
+%       trig            Trigger times (samples)
+%       offset          Offset (percentile of duration - scalar or vector)
+%       duration        Duration vector of segments (msecs)
+%       width           Analysis width (percentile of duration - scalar or vector)
+%       rate            Sampling rate
+%       opt_str         Options string
+%                           r - Rectify time series
+%
+% Output parameters
+%       sp              Spectral matrix
+%       params          Parameters structure
+%
+%function [sp,params]=kf_sp2(dat1,dat2,trig,offset,duration,width,rate,opt_str);
+
+% Check input parameters
+if (nargin~=8)
+    error(' Incorrect number of input parameters');
+end;
+if (size(dat1)~=size(dat2))
+    error(' Data channels must be of the same length');
+end;
+
+% Parse options string
+options=deblank(opt_str); opt_str=''; mt_opts=opt_str;
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'r'                    % Rectify channels
+        	n=str2num(optarg);
+			if ((n<0) | (n>2))
+			    error(['Error in option argument -- r' optarg]);
+			end;  
+			if (n~=1)   % Rectify ch 1.
+			    dat1=abs(dat1);
+			end;  
+			if (n>=1)   % Rectify ch 2.
+			    dat2=abs(dat2);
+			end;
+        case 'f'        % Maximum frequency
+            warning(' Option f not implemented');
+            maxf=str2num(optarg);
+            if (isempty(maxf))
+                error(['Error in option argument -- f' optarg]);
+            end;
+        otherwise                   % Options for wavelet analysis
+            error(['Unknown option -- ' opt]);
+    end;
+end;
+
+% Convert scalar inputs to vectors for processing
+if (length(offset)==1), offset=offset*ones(length(trig),1); end;
+if (length(width)==1),  width=width*ones(length(trig),1);   end;
+
+% Crop triggers to only include those segments fully defined in the time range
+dur=round(width.*duration*rate/1000);   % trials in samples
+trigpos=((trig+round(offset./width.*dur))>0 & (trig+round(offset./width.*dur)+dur)<=length(dat1));
+dur=dur(trigpos); trig=trig(trigpos);
+
+% Determine parameters
+trigcount=length(trig);                 % Trigger count
+N=round(max(dur+1));                    % Longest sample segment
+fmax=floor(N/2+1);                      % Maximum analysis frequency
+w=dur./sum(dur);                        % Weighting scheme
+%w=ones(size(dur))./sum(dur);
+
+% Reserve variable space
+F11=zeros(fmax-1,1);
+F22=zeros(fmax-1,1);
+F12=zeros(fmax-1,1);
+
+% Form spectra
+for ind=1:trigcount
+    % Determine data segment
+    trange=trig(ind)+round(offset(ind)/width(ind)*dur(ind))+[0:dur(ind)];
+    % Zero pad Fourier transform (zero mean and energy normalise segment first)
+    dat=dat1(trange)-mean(dat1(trange)); dat=dat/sqrt(sum(dat.^2));
+    data=dat;
+%     F1=fft([dat; zeros(N-length(dat),1)]); F1=F1(2:fmax);
+    dat=dat2(trange)-mean(dat2(trange)); dat=dat/sqrt(sum(dat.^2));
+    datb=dat;
+%     F2=fft([dat; zeros(N-length(dat),1)]); F2=F2(2:fmax);
+%     % Form spectra
+%     F11=F11+w(ind)*(abs(F1).^2);
+%     F22=F22+w(ind)*(abs(F2).^2);
+%     F12=F12+w(ind)*(conj(F2).*F1);
+    % Use multitaper routines
+    [F11,F22,F12,params]=mt_sp(data,datb,rate,mt_opts);
+end;
+
+% Return spectral matrix
+sp(:,1)=F11;
+sp(:,2)=F22;
+sp(:,3)=F12;
+sp(:,4)=(abs(F12).^2)./(F11.*F22);
+sp(:,5)=angle(F12);
+
+% Form parameters structure
+freqs=rate*[1:floor(N/2)]/N;
+params.freqs=freqs;
+params.rate=rate;
+% Compatibility parameters for MTM plot routines
+params.jackknife=logical(0);
+params.L=(1/sum(w.^2))*ones(floor(N/2),1);

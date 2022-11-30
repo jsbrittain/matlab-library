@@ -1,0 +1,57 @@
+function sp=mt_mains(sp,freqs,mains,harmonics);
+%function sp=mt_mains(sp,freqs,[mains],[hamonics]);
+%
+% Routine to remove mains interference from processed spectra
+%
+% Method based on Neurospec implementation
+% Extension to method removes all harmonics of the mains frequency
+%
+% Input parameters
+%       sp          Spectrum
+%       freqs       Frequency vector
+%       mains       Line frequency (default: 50Hz)
+%       harmonics   Remove all harmonics (logical; default: 0)
+%
+%function sp=mt_mains(sp,freqs,[mains],[hamonics]);
+
+% Determine input parameters
+if (~exist('mains'))
+    mains=50;
+end;
+if (~exist('harmonics'))
+    harmonics=logical(0);
+end;
+if (~isreal(mains))
+    error(' Mains argument must be real-valued.');
+end;
+if (~islogical(harmonics))
+    error(' Harmonics argument must be logical.');
+end;
+
+% Find index of line component
+if (harmonics)
+    lineind=dsearchn(freqs',[mains:mains:(max(freqs)-3)]');
+else
+    lineind=dsearchn(freqs',mains);
+end;
+
+% Recurse harmonics (or just mains if scalar provided)
+for lineind=lineind
+    
+    % Mains suppression (method taken from Neurospec routines)
+    sp(lineind)   = 0.5*(sp(lineind-2)+sp(lineind+2));
+    sp(lineind-1) = 0.5*(sp(lineind-2)+sp(lineind-3));
+    sp(lineind+1) = 0.5*(sp(lineind+2)+sp(lineind+3));
+    
+    % Conjugate 
+
+    % Smooth elements in upper hermetian section of cross spectral estimate.
+    if (length(find(freqs<0))>0)
+        % This data used in ifft() to generate cumulant. Data is complex conjugate.
+        lineindneg=dsearchn(freqs',-freqs(lineind));
+        sp(lineindneg)=conj(sp(lineind));
+        sp(lineindneg)=conj(sp(lineind-1));
+        sp(lineindneg)=conj(sp(lineind+1));
+    end;
+    
+end;

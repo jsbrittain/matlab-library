@@ -1,0 +1,135 @@
+function [prior,A,hmmar,hmms2]=hmmar_reestimatemodel_multiple(y,prior,A,step,hmmar,hmms2,varargin)
+%
+% Re-estimate HMM-AR model given initial estimate of (prior, A),
+% measurement sequence and a set of AR coefficients.
+%
+% Input parameters
+%       y           Measurement sequence
+%                     ( 1 x N )
+%       prior       
+%       A           
+%       step        Scale estimate every `step' samples (0=none; 1=default)
+%       hmmar       
+%       hmms2       
+%       varargin    Parameter-value pairs
+%                       threshold   AR-coeff update threshold (1e-6)
+%                       modelth     Model updaet threshold (1e-6)
+%
+% Output parameters
+%       prior, A, hmmar, hmms2      Updated parameters
+%
+
+% Check input parameters
+validateaccuracy = false;
+if (~iscell(y))
+    y={y};
+end;
+
+% Default parameters
+maxreps = 100;          % Maximum repetition count
+th = 1e-6;              % Threshold limit
+
+% Interpret varargin
+if (mod(length(varargin),2)~=0)
+    error(' Optional arguments must occur in parameter-value pairs.');
+end;
+optargs={};
+for n=(1:2:length(varargin))
+    switch (lower(varargin{n}))
+        case 'threshold'
+            th = varargin{n+1};
+        case 'modelth'
+            optargs{end+1} = 'threshold';
+            optargs{end+1} = varargin{n+1};
+        otherwise
+            optargs{end+1} = varargin{n};
+            optargs{end+1} = varargin{n+1};
+    end;
+end;
+
+% Determine data parameters
+Q = length(prior);
+p = size(hmmar,1);
+K = length(y);
+
+% Determine segment lengths
+N = zeros(1,K);
+for k=(1:K)
+    N(k) = length(y{k});
+end;
+NT = sum(N)-K*(p+2);
+
+% Compute probability of measurement being in each state
+b = cell(K,1); yb = cell(1,K); logp0 = zeros(1,K);
+for k=(1:K)
+    [b{k},yb{k}] = ar_obslik(y{k},hmmar,hmms2);
+    b{k}=b{k}(:,(p+2:N(k)));
+    logp0(k) = chmm_probobs(b{k},prior,A,step);
+end;
+% Reject sections with a NaN probability (usually due to poor data)
+list = find(~isnan(logp0));
+% Report rejected segments
+if (length(list)~=K)
+    disp(['Data segments rejected: ' num2str(find(isnan(logp0)))]);
+end;
+y = {y{list}}; b = {b{list}}; yb = {yb{list}};
+logp0 = sum(logp0(list));
+K = length(list);
+
+% Ensure each state has an associated variance estimate
+if ((p>1) && (length(hmms2)==1))
+    hmms2 = hmms2 * ones(1,p);
+end;
+
+% Compute matrix X
+X = zeros(NT,p);
+for k=(1:K)
+    for t=((p+2):(N(k)-1))
+        tt = sum(N(1:(k-1)))-(k-1)*(p+2);
+        X(tt+t-p-1,:) = -(y{k}((t-1):(-1):(t-p)));
+    end;
+end;
+
+% Iterate re-estimation procedure
+logp=0; rep = 0;
+while ( ((1-logp/logp0)>th) && (rep < maxreps))
+    
+    % Iterate model parameters
+    [prior,A,gammati] = chmm_estimatemodel_multiple(b,prior,A,step,optargs{:});
+    
+    % Update AR coefficients (See Penny & Roberts 1999, p.487)
+    Y = zeros(NT,1);
+    for k=(1:K)
+        tt = sum(N(1:(k-1)))-(k-1)*(p+2);
+        Y(tt+[1:(N(k)-p-2)]) = y{k}((p+2):(N(k)-1)).';
+    end;
+    parfor j=(1:Q)
+        % Phrase AR coefficient update in least-squares form
+        gtij = zeros(NT,1);
+        YB = zeros(1,NT);
+        for k=(1:K)
+            tt = sum(N(1:(k-1)))-(k-1)*(p+2);
+            gtij(tt+[1:(N(k)-p-2)]) = gammati{k}(:,j);
+            YB(tt+[1:(N(k)-p-2)]) = yb{k}(j,(p+2):(N(k)-1));
+        end;
+        C = diag(sparse(sqrt(gtij)));
+        Xtilde = C*X;
+        Ytilde = C*Y;
+        % Solve least-squares using (more efficient) SVD
+        [U,S,V] = svd(Xtilde,'econ');
+        hmmar(:,j) = V*pinv(S)*(U.')*Ytilde;
+        hmms2(j) = sum((gtij.').*((Y.'-YB).^2))./sum(gtij);
+    end;
+    
+    % Re-estimate observation likelihood
+    logp0 = logp; logp = 0;
+    for k=(1:K)
+        [b{k},yb{k}] = ar_obslik(y{k},hmmar,hmms2);
+        b{k}=b{k}(:,(p+2:N(k)));
+        logp = logp + chmm_probobs(b{k},prior,A,step);
+    end;
+    
+    % Increment loop counter
+    rep = rep + 1;
+    
+end;

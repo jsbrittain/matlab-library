@@ -1,0 +1,34 @@
+function [wlparam,varargout]=mwTruncate(wlparam,varargin);
+%function [wlparam,...]=mwTruncate(wlparam,...);
+%
+% Truncate wavelet parameters
+%
+% First input is the wavelet parameter structure whose elements are
+% sufficiently truncated to remove COI only regions.  Additional arguments
+% may be wavelet transform matrices, wavelet spectra or coherence which are
+% themselves truncated to the same level as the parameter structure.
+%
+%function [wlparam,...]=mwTruncate(wlparam,...);
+
+% Check input parameters
+if (nargin<1)
+    error(' Not enough input parameters');
+end;
+if (nargout~=nargin)
+    error(' Incorrect number of input/output correspondent arguments');
+end;
+
+% Truncate parameter structure
+minfreq=find(min(abs(wlparam.freqs-min(wlparam.coi)))==abs(wlparam.freqs-min(wlparam.coi))); minfreq=minfreq(end);
+if (diff(wlparam.freqs([1 end]))<0)
+    frange=1:minfreq;
+else
+    frange=minfreq:length(wlparam.freqs);
+end;
+wlparam.freqs=wlparam.freqs(frange);
+wlparam.scale=wlparam.scale(frange);
+
+% Truncate additional input arguments and assign to output
+for ind=1:length(varargin)
+    varargout{ind}=varargin{ind}(frange,:,:);
+end;

@@ -1,0 +1,56 @@
+% Neuron producing output to second neuron (one-way)
+
+% Simulation parameters
+secs=50;
+dt=1e-3;
+init=2;
+
+% Common encoder parameters
+tau=2.5e-2;
+v0=0;
+th=1;
+
+% Neuron 1
+neurons{1}.tau=tau;                 % Time-constant
+neurons{1}.v0=v0;                   % Reset value
+neurons{1}.th=th;                   % Threshold value
+neurons{1}.mu=1.02;                 % Noise statistics N(mu,sigma^2)
+neurons{1}.sigma=0.065;             %  |
+neurons{1}.synapse{1}.neuron=2;     % Post-synaptic neuron
+neurons{1}.synapse{1}.mag=6.63;     % Pulse magnitude
+neurons{1}.synapse{1}.width=0.002;  % Pulse width (secs)
+neurons{1}.synapse{2}.neuron=3;     % Post-synaptic neuron
+neurons{1}.synapse{2}.mag=6.63;     % Pulse magnitude
+neurons{1}.synapse{2}.width=0.002;  % Pulse width (secs)
+
+% Neuron 2
+neurons{2}.tau=tau;
+neurons{2}.v0=v0;
+neurons{2}.th=th;
+neurons{2}.mu=1.02;
+neurons{2}.sigma=0.065;
+neurons{2}.synapse{1}.neuron=3;
+neurons{2}.synapse{1}.mag=3.98;
+neurons{2}.synapse{1}.width=0.002;
+
+% Neuron 3
+neurons{3}.tau=tau;
+neurons{3}.v0=v0;
+neurons{3}.th=th;
+neurons{3}.mu=1.02;
+neurons{3}.sigma=0.065;
+neurons{3}.synapse{1}.neuron=2;
+neurons{3}.synapse{1}.mag=3.98;
+neurons{3}.synapse{1}.width=0.002;
+
+% Run simulation
+sim=spfm_sim(neurons,secs,dt,init);
+
+% Plot results
+spfm_pNeurons(sim);
+
+% Spectral analysis
+sp1=round(sim.neurons{2}.spikes/dt);
+sp2=round(sim.neurons{3}.spikes/dt);
+[f,t,cl] = sp2_m(sp1,sp2,1/dt,10,' ');
+psp2(f,t,cl,1/2/dt,2^10,lag_neg,ch_max,label)

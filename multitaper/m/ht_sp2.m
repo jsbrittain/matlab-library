@@ -1,0 +1,57 @@
+function [sp11,sp22,sp12,params]=ht_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+%function [sp11,sp22,sp12,params]=ht_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+%
+% Multitaper time-frequency analysis utilising Hermite functions
+% Spectral analysis over trials
+%
+% Implementation
+%   Eigenvalue weighting
+%
+% Input parameters
+%       dat1        Time series ch.1
+%       dat2        Time series ch.2
+%       trig        Triggers
+%       offset      Offset (ms)
+%       duration    Duration (ms)
+%       rate        Sampling rate
+%       opt_str     Options string
+%                       r<n>        rectify channels (n={0:ch.1,1:ch.2,2:ch1,2})
+%                       f<n>        maximum analysis frequency
+%                       A<n>        localisation area
+%                       t<msecs>    time skip for plotting (default: 50 msecs)
+%                       s<n>        time scaling for elliptical discs (default: 0.010)
+%                       n           power normalise each increment
+%
+%function [sp11,sp22,sp12,params]=ht_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+
+% Convert offset/duration to samples
+offset=round(offset*rate/1000);
+duration=round(duration*rate/1000);
+trig=trig(((trig+offset)>0) & ((trig+offset+duration)<length(dat1)));
+trigcount=length(trig);
+
+% Perform hermite TFR analysis over trials
+for ind=1:trigcount
+    % Display progress
+    disp(['Trial ' int2str(ind) ' of ' int2str(trigcount)]);
+    % Perform single trial analysis
+    trange=trig(ind)+offset+[0:duration-1];
+    if ( 0 )
+        dat1 = dat1./sqrt(mean(dat1.^2));
+        dat2 = dat2./sqrt(mean(dat2.^2));
+    end
+    [p11,p22,p12,params]=ht_sp(dat1(trange),dat2(trange),rate,opt_str);
+    % Form recursive estimate of the spectra
+    if (ind==1)
+        sp11=p11/trigcount;
+        sp22=p22/trigcount;
+        sp12=p12/trigcount;
+    else
+        sp11=sp11+p11/trigcount;
+        sp22=sp22+p22/trigcount;
+        sp12=sp12+p12/trigcount;
+    end;
+end;
+
+% Update parameters structure
+params.trigcount=trigcount*params.L;        % For conf limits

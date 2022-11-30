@@ -1,0 +1,13 @@
+function analysis = phaseprec( acc, tacs )
+
+bincount = 20;
+
+hacc = hilbert(acc);
+htacs = hilbert(tacs);
+phasediff = angle(exp(1i*(angle(hacc)-angle(htacs))));
+magacc = abs(hacc);
+
+phasediff = round( phasediff+pi)/2/pi ;
+for k = (1:bincount)
+    
+end;

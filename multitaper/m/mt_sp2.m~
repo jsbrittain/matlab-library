@@ -1,0 +1,442 @@
+function [sp11,sp22,sp12,params]=mt_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+%function [sp11,sp22,sp12,params]=mt_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+%
+% Multi-taper analysis type 2
+%
+% Implementation:
+%   Time series (for spike trains use mt_sp2_pp.m)
+%   Capable of statistical confidence inference using jackknife or bootstrap
+%
+% Input parameters
+%   Data parameters
+%       dat1        Time series 1
+%       dat2        Time series 2
+%       trig        Trigger
+%       offset      Offset (ms)
+%       duration    Duration (ms)
+%       rate        Sampling rate
+%   Analysis parameters
+%       frange      Frequency range (may be [] for defaults)
+%       opt_str     Options string
+%                       r<n>        rectify (n={0:none,1:ch1,2:ch1&2})
+%                       W<n>        time-bandwidth product (default: 0)(0-none)(0.5-Gaussian)
+%                       w<n>        multitaper weighting scheme (n={0:uniform,1:eigenvalue,2:adaptive})
+%                       f<n>        maximum analysis frequency (default: Nyquist)
+%                       j<n>        jackknife estimates (n={0:none(default),1:trials,2:tapers})
+%                       b<n>        bootstrap confidence limits (requires jackknife options; n=resample count, default:1000)
+%                       p<n>        zero pad to 2^n (default: next power of 2)
+%                       d<0,1>      downsample to bandwidth W (0-No,1-Yes(default))
+%                       n<low,high> power normalise segments (freq range (optional))
+%                                   (!FREQ RANGE NOT YET IMPLEMENTED!)
+%                       m<n,h>      main suppression (n=frequency{50}, h=harmonics(logical{0}))
+%                       s           double spectral content (for rejecting -ve freq range)
+%                       S           suppress progress reporting
+%                       e           return all eigenspectra
+%                                   (!NOT YET IMPLEMENTED!)
+%                       x           Turn progress display OFF
+%                       q           Frequency warp signal
+%
+% Cumulant lags relative to dat1, thus +100msecs corresponds to dat1 ->
+%   dat2 directionality with 100msec lag.
+%
+% Mean subtracted segments lead to unreadable log10 spectra therefore omit
+%     DC component.
+%
+% References
+%   Thomson D.J. and Chave A.D. "Jackknifed Error Estimates for Spectra,
+%       Coherences, and Transfer Functions" in Advances in Spectrum Analysis
+%       and Array Processing.  Haykin S. (editor), 1991. Ch.2, pp.58-113.
+%
+%function [sp11,sp22,sp12,params]=mt_sp2(dat1,dat2,trig,offset,duration,rate,opt_str)
+
+% Check input parameters
+if (nargin~=7)
+    error(' Incorrect number of input parameters');
+end;
+
+% Default parameters
+NW=0;                       % multitaper bandwidth
+maxf=rate/2;                % maximum analysis frequency (Nyquist)
+multitaper=logical(1);      % perform multitaper analysis
+jackknife=0;                % perform jack-knife over trials
+bootstrap=logical(0);       % perform bootstrap switch
+B=1000;                     % resample count (for bootstrap)
+weighting_scheme=1;         % weighting scheme (0:uniform,1:eigenvalue,2:adaptive)
+mt_opts='f0';               % request full spectra from MTM routine (include -ve freqs)
+pad=logical(0);             % zero padding
+downsample=logical(1);      % downsample to bandwidth W
+mains=0;                    % mains suppression
+harmonics=logical(0);       % harmonic suppression (only valid with mains suppression)
+reporting=true;             % progress reporting
+eigenwanted=false;          % Return all eigenspectra
+display_progress = true;    % Display progress
+warp_signal = false;        % Frequency warp signal
+
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'r'                    % Rectify channels
+        	n=str2num(optarg);
+			if ((n<0) | (n>2))
+			    error(['Error in option argument -- r' optarg]);
+			end;  
+			if (n~=1)   % Rectify ch 1.
+			    dat1=abs(dat1);
+			end;  
+			if (n>=1)   % Rectify ch 2.
+			    dat2=abs(dat2);
+			end;
+            mt_opts=[mt_opts ' ' opt];
+        case 'W'        % Specify bandwidth
+            NW=str2num(optarg);
+            if (isempty(NW))
+                error(['Error in option argument -- W' optarg]);
+            end;
+            if (NW==0)
+                multitaper=0;
+            end;
+            mt_opts=[mt_opts ' ' opt];
+        case 'w'        % Weighting scheme
+            weighting_scheme=str2num(optarg);
+            if (isempty(weighting_scheme))
+                error(['Error in option argument -- w' optarg]);
+            end;
+            mt_opts=[mt_opts ' ' opt];
+        case 'f'        % Maximum frequency
+            maxf=str2num(optarg);
+            if (isempty(maxf))
+                error(['Error in option argument -- f' optarg]);
+            end;
+        case 'j'        % Jack-knife
+            jackknife=str2num(optarg);
+            if isempty(jackknife)
+                jackknife=1;    % (over trials)
+            end;
+            if (jackknife==2)   % (over tapers)
+                mt_opts=[mt_opts ' j'];
+            end;
+        case 'b'        % bootstrap
+            bootstrap=logical(1);
+            temp=str2num(optarg);
+            if (~isempty(temp))
+                B=temp;
+            end;
+        case 'p'        % Zero pad
+            if (~isempty(optarg))
+                pad=str2num(optarg);        % Total pad length
+            else
+                pad=1;
+            end;
+            mt_opts=[mt_opts ' p' optarg];
+        case 'd'        % Downsample
+            try     downsample=logical(str2num(optarg));
+                    mt_opts=[mt_opts ' ' opt];
+            catch   error(['Error in option argument -- d' optarg]);
+            end;
+        case 'n'        % Power/energy normalise
+            mt_opts=[mt_opts ' ' opt];
+        case 'm'        % Mains suppression
+            [opt1,opt2]=strtok(optarg,',');
+            if (isempty(opt1))      % check line frequency option
+                mains=50;
+            else
+                mains=str2num(opt1);
+                if (isempty(mains))
+                    error(['Error in option argument -- m' optarg ', line frequency must be real-valued']);
+                end;
+            end;
+            if (isempty(opt2))      % check harmonics option
+                harmonics=logical(0);
+            else
+                harmonics=logical(str2num(opt2(2:end)));
+                if (isempty(harmonics))
+                    error(['Error in option argument -- m' optarg ', harmonics must be logical']);
+                end;
+            end;
+        case 's'
+            mt_opts=[mt_opts ' ' opt];
+        case 'S'    % Suppress progress reporting
+            reporting=false;
+        case 'e'    % Return all eigenspectra
+            eigenwanted=true;
+            mt_opts=[mt_opts ' ' opt];
+        case 'x'    % Turn progress display OFF
+            display_progress = false;
+        case 'q'    % Frequency warp signal
+            warp_signal = true;
+        otherwise                   % Options for wavelet analysis
+            error(['Unknown option -- ' opt]);
+    end;
+end;
+
+% Determine data parameters
+offset=offset*rate/1000;        % Convert ms -> samples
+duration=duration*rate/1000;    %
+trig=round(trig);
+trig=trig(trig+offset>0 & (trig+offset+duration-1)<=length(dat1));
+trialcount=length(trig);
+
+% Generate Discrete Prolate Spheroidal Sequences (DPSS)
+if (pad==1)
+    padduration=2^ceil(log2(duration));
+elseif (pad>1)
+    padduration=2^pad;
+else
+    padduration=duration;
+end;
+if (padduration < duration)
+    error(' Pad length too short for data.');
+end;
+padcount=padduration;
+if (multitaper)
+    if (NW==0.5)
+        [E,V]=dpss(padduration,1);  % 3rd party routine (Breitenberger)
+        E=E(:,1); V=V(1);
+    else
+        [E,V]=dpss(padduration,NW);  % 3rd party routine (Breitenberger)
+    end;
+    %mt_opts=[mt_opts ' w' int2str(weighting_scheme)];
+else
+    E=ones(padduration,1)/sqrt(duration);
+    weighting_scheme=0;
+end;
+tapercount=size(E,2);
+
+% Determine frequency range and maximum frequency
+if (maxf~=0)
+    freqs=rate*[0:padduration/2]/padduration;
+    fmin=2;                 % Remove DC component
+    fmax=min(floor(padduration/2)+1,find(abs(freqs-maxf)==min(abs(freqs-maxf)))); % pts
+else
+    freqs=rate*[0:(ceil(padduration/2)-1) (-floor(padduration/2)):-1]/padduration;
+    fmin=1; fmax=padduration;
+end;
+fcount=fmax-fmin+1;
+
+% Downsample to bandwidth W
+if (downsample & multitaper)
+	frange=round([2*NW:2*NW:fcount]);
+    fcount=length(frange);
+    fmin=1; fmax=fcount;
+    padcount=ceil(padduration/2/NW);
+end;
+
+% Assign weights to weighting scheme
+switch (weighting_scheme)
+    case 0      % Uniform weighting
+        weights=ones(tapercount,1);
+    case 1      % Eigenvalue
+        weights=V;
+    case 2      % Adaptive
+        weights=V;
+    otherwise
+        error('Unknown weighting scheme specified');
+end;
+
+% Allocate memory
+if (jackknife)
+    switch (jackknife)
+        case 1, jkcount=trialcount;
+        case 2
+            jkcount=trialcount*tapercount;
+            if (~multitaper)
+                error('Cannot jackknife over tapers when performing trial-average without multitaper');
+            end;
+	end;
+    p11=zeros(fcount,jkcount);      dk11=zeros(fcount,jkcount);
+    p22=zeros(fcount,jkcount);      dk22=zeros(fcount,jkcount);
+    p12=zeros(padcount,jkcount);    dk12=zeros(padcount,jkcount);
+else
+    jkcount=1;
+    sp11=zeros(fcount,jkcount);
+    sp22=zeros(fcount,jkcount);
+    sp12=zeros(padcount,jkcount);
+end;
+L1=zeros(fcount,1);
+L2=zeros(fcount,1);
+L12=zeros(fcount,1);
+
+% Setup structures for returning eigenspectra
+if (eigenwanted)
+    params.p11=[];  params.p22=[];  params.p12=[];
+    params.dk11=[]; params.dk22=[]; params.dk12=[];
+end;
+
+% Frequency warp signal and adjust frequency vector
+if (
+
+% Recursively form multi-taper spectrum
+progress=0;
+for trial=1:trialcount
+    % Determine time range for trial
+    if (display_progress)
+        if (floor(trial/trialcount*100)>progress)
+            progress=floor(trial/trialcount*100);
+            disp(['Multi-taper trial ' int2str(progress) '% (' int2str(trialcount) ' trials)']);
+        end;
+    end;
+    trange=round(trig(trial)+offset+[0:duration-1]);
+    % Single trial multi-taper estimate
+    [mt11,mt22,mt12,mtparams]=mt_sp(dat1(trange),dat2(trange),rate,mt_opts,E,weights);
+    mt11=mt11(fmin:fmax); mt22=mt22(fmin:fmax);
+    % Construct recursive equivalent number segments
+    L1=L1+mtparams.L1(fmin:fmax); L2=L2+mtparams.L2(fmin:fmax); L12=L12+mtparams.L12(fmin:fmax);
+    % Store eigenspectra
+    if (eigenwanted)
+        params.p11=[params.p11 mtparams.p11];
+        params.p22=[params.p22 mtparams.p22];
+        params.p12=[params.p12 mtparams.p12];
+        params.dk11=[params.dk11 mtparams.dk11];
+        params.dk22=[params.dk22 mtparams.dk22];
+        params.dk12=[params.dk12 mtparams.dk12];
+    end;
+    
+    switch (jackknife)
+        case 0              % None
+            % Form conditioned spectra recursively
+            sp11=sp11+mt11/trialcount;
+            sp22=sp22+mt22/trialcount;
+            sp12=sp12+mt12/trialcount;
+        case 1              % Over trials
+            % Form eigenspectra matrices
+            p11(:,trial)=mt11; dk11(:,trial)=1;
+            p22(:,trial)=mt22; dk22(:,trial)=1;
+            p12(:,trial)=mt12; dk12(:,trial)=1;
+        case 2              % Over tapers and trials
+            % Form eigenspectra matrices
+            tapers=[(trial-1)*tapercount+1:trial*tapercount];
+            p11(:,tapers)=mtparams.p11(fmin:fmax,:); dk11(:,tapers)=mtparams.dk11(fmin:fmax,:);
+            p22(:,tapers)=mtparams.p22(fmin:fmax,:); dk22(:,tapers)=mtparams.dk22(fmin:fmax,:);
+            p12(:,tapers)=mtparams.p12;              dk12(:,tapers)=mtparams.dk12;
+    end;
+end;
+
+% Assign common output parameters
+params.mtparams=mtparams;
+params.duration=duration*1000/rate;     % msecs
+params.padduration=padduration;
+params.padcount=padcount;
+params.rate=rate;
+params.freqs=mtparams.freqs(fmin:fmax);
+params.fmax=maxf;
+params.tapercount=tapercount;
+params.trialcount=trialcount;
+params.NW=NW;
+params.L1=L1;
+params.L2=L2;
+params.L12=L12;
+params.L=min(cat(3,L1,L2,L12),[],3);
+params.jackknife=jackknife;
+params.bootstrap=bootstrap;
+params.jkcount=jkcount;
+params.downsample=downsample;
+
+if (jackknife)
+    % Display progress
+    disp('Generating jackknife/bootstrap confidence limits...');
+    % Calculate multitaper spectra
+    sp11=sum(dk11.*p11,2)./sum(dk11,2);
+    sp22=sum(dk22.*p22,2)./sum(dk22,2);
+    sp12=sum(dk12.*p12,2)./sum(dk12,2);
+    % Reserve variable space
+    jk12=zeros(fcount,jkcount);
+    jk12=zeros(fcount,jkcount);
+    jk12=zeros(padcount,jkcount);
+params.p11=p11;
+params.p22=p22;
+params.p12=p12(fmin:fmax,:);
+    % Construct delete-one-estimates
+    pdk11=sum(dk11.*p11,2); dk11tot=sum(dk11,2);
+    pdk22=sum(dk22.*p22,2); dk22tot=sum(dk22,2);
+    pdk12=sum(dk12.*p12,2); dk12tot=sum(dk12,2);
+    for taper=1:jkcount
+        tapers=[1:taper-1 taper+1:jkcount];
+        jk11(:,taper)=(pdk11-dk11(:,taper).*p11(:,taper))./(dk11tot-dk11(:,taper));
+        jk22(:,taper)=(pdk22-dk22(:,taper).*p22(:,taper))./(dk22tot-dk22(:,taper));
+        jk12(:,taper)=(pdk12-dk12(:,taper).*p12(:,taper))./(dk12tot-dk12(:,taper));
+    end;
+%clear('pdk11','pdk22','pdk12','dk11tot','dk22tot','dk12tot');
+    params.dk11=dk11; params.dk22=dk22; params.dk12=dk12(fmin:fmax,:);
+    clear('dk11','dk22','dk12');
+    % Bootstrap (based on periodograms)
+    if (bootstrap)
+        params=mt_bootstrap(p11,p22,p12,[fmin fmax],params,B);
+    end;
+    clear('p11','p22','p12');
+    % Output jackknife matrices (used for coherence/phase jackknifing)
+    params.jk11=jk11; clear('jk11');
+ 	params.jk22=jk22; clear('jk22');
+ 	params.jk12=jk12; clear('jk12');
+    % Jackknife cumulant density (requires full sp12)
+    [q,params]=jk_sp2_q(sp12,params);
+    params.q=q;
+    % Truncate cross-spectra to fmax
+    sp12=sp12(fmin:fmax);
+    params.jk12=params.jk12(fmin:fmax,:);
+	% Jack-knife variance of LOG spectral estimates (Thomson 1991 (2.2))
+	meanjk=mean(log10(params.jk11),2); meanjk=meanjk(:,ones(1,jkcount));
+	params.jk11v=(jkcount-1)*mean((log10(params.jk11)-meanjk).^2,2);
+	meanjk=mean(log10(params.jk22),2); meanjk=meanjk(:,ones(1,jkcount));
+	params.jk22v=(jkcount-1)*mean((log10(params.jk22)-meanjk).^2,2);
+	meanjk=mean(log10(params.jk12),2); meanjk=meanjk(:,ones(1,jkcount));
+	params.jk12v=(jkcount-1)*mean(abs(log10(params.jk12)-meanjk).^2,2);
+	% Construct pseudo-values for LOG spectra (mean gives jack-knife estimate of log spectra)
+%params.pv11=jkcount*log10(sp11(:,ones(1,jkcount)))-(jkcount-1)*log10(params.jk11);
+%params.pv22=jkcount*log10(sp22(:,ones(1,jkcount)))-(jkcount-1)*log10(params.jk22);
+%params.pv12=jkcount*log10(sp12(:,ones(1,jkcount)))-(jkcount-1)*log10(params.jk12);
+dk12tot=dk12tot(fmin:fmax);
+params.pv11=dk11tot(:,ones(1,jkcount)).*log10(sp11(:,ones(1,jkcount)))-(dk11tot(:,ones(1,jkcount))-params.dk11).*log10(params.jk11);
+params.pv22=dk22tot(:,ones(1,jkcount)).*log10(sp22(:,ones(1,jkcount)))-(dk22tot(:,ones(1,jkcount))-params.dk22).*log10(params.jk22);
+params.pv12=dk12tot(:,ones(1,jkcount)).*log10(sp12(:,ones(1,jkcount)))-(dk12tot(:,ones(1,jkcount))-params.dk12).*log10(params.jk12);
+    % Jackknife coherence
+    [coh,params]=jk_sp2_coh(sp11,sp22,sp12,params);
+    params.coh=coh;
+    % Jackknife phase
+    [ph,params]=jk_sp2_ph(sp12,params);
+    params.ph=ph;
+    % Check mains argument
+    if (mains>0)
+        warning(' Mains suppression not currently implemented for jackknife results');
+    end;
+    
+    if (eigenwanted)
+      warning(' Eigenwanted not yet supported for jacknnife estimates.');
+    end;
+else
+    % Mains suppression
+    if (mains)
+        sp11=mt_mains(sp11,freqs,mains,harmonics);
+        sp22=mt_mains(sp22,freqs,mains,harmonics);
+        sp12=mt_mains(sp12,freqs,mains,harmonics);
+    end;
+    % Calculate cumulant density
+    q_norm=1;
+    if (mtparams.spec_norm/padduration==2*pi)
+        q_norm=2*pi;
+	end;
+    params.q=q_norm*real(fftshift(ifft(sp12)));
+    params.qlags=[-floor(padcount/2):ceil(padcount/2-1)]*1000/params.rate;
+    % Truncate cross-spectra to fmax
+    sp12=sp12(fmin:fmax);
+    % Calculate coherence
+    %params.coh=atanh(abs(sp12)./sqrt(sp11.*sp22));
+    % Calculate phase
+    %params.ph=angle(sp12);
+    
+    if (eigenwanted)
+        params.p11=params.p11(fmin:fmax,:);
+        params.p22=params.p22(fmin:fmax,:);
+        params.p12=params.p12(fmin:fmax,:);
+        params.dk11=params.dk11(fmin:fmax,:);
+        params.dk22=params.dk22(fmin:fmax,:);
+        params.dk12=params.dk12(fmin:fmax,:);
+    end;
+end;
+
+% Display progress
+if (display_progress)
+    disp('done.');
+end;

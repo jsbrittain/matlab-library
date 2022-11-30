@@ -1,0 +1,141 @@
+function [q,s2,evidence,ct,rhoavg] = var_kalman(y,p,s2static,alpha)
+%
+% Kalman filter implementation of Vector-Autoregressive estimator
+%
+%
+% Negative `alpha' rate is interpreted as the (negative) static noise
+% covariance matrix ( -W ; can be scalar or matrix form ).
+%
+% EXPERIMENTAL
+
+% Check input parameters
+if (~exist('s2static','var'))
+    s2static = [];
+end;
+if (~exist('alpha','var'))
+    alpha = 0.1;
+end;
+if (isvector(y))
+    if (size(y,1)>1)
+        y=y.';
+    end;
+end;
+
+% Default parameters
+statenoisemethod = 0;
+
+% Determine data parameters
+m = size(y,1);
+N = size(y,2);
+mp = m*p;
+m2p = (m^2)*p;
+
+% Determine measurement noise (static moving window estimates)
+if (isempty(s2static))
+    disp(' Using ARFIT to produce initial estimate and measurement noise covariance matrix ...');
+    addpath('~/matlab/library/thirdparty/arfit/arfit');
+    T = 5*p;
+    npts = (1:round(T/2):(N-T));
+    ntt = (1:T);
+    s2static = zeros(m,m,length(npts));
+    s2sort = zeros(1,length(npts));
+    for n = (1:length(npts))
+        [w,A,C,SBC,FPE,th]=arfit(y(:,npts(n)+ntt)',p,p);
+        s2static(:,:,n) = C;
+        s2sort(n) = det(C);
+    end;
+    [s2sort,ix] = sort(s2sort);
+    s2static = s2static(:,:,ix);
+    s2static = mean(s2static(:,:,max([1 round(length(npts)/4)]):round(3*length(npts)/4)),3);
+    disp(' Finished with ARFIT.');
+end;
+
+% Reserve memory
+s2 = zeros(m,m,N);
+yhat = zeros(m,N);
+ct = zeros(1,N);
+s2y = zeros(m,m,N);
+K = zeros(m2p,m,N);
+q = zeros(m2p,N);
+S = zeros(m2p,m2p,N);
+rho = zeros(m2p,m2p,N);
+rhoavg = zeros(1,N);
+evidence = zeros(1,N);
+ct = zeros(m2p,m2p,N);
+
+% Initial estimates
+y1p = kron( eye(m), reshape( -y(:,1:p), 1, mp ) ).';                % Ordinary-least-squares regression (1:p) onto (p+1)
+q(:,p+1) = pinv(y1p*y1p')*y1p*y(:,p+1);
+Ft = kron( eye(m), reshape( -(y(:,p:(-1):1)), 1, mp ) );
+%S(:,:,p+1) = kron( eye(mp), s2static*(Ft*(Ft.')) );
+S(:,:,p+1) = trace(s2static*(Ft*(Ft.')))/m * eye(m2p);
+%S(:,:,p+1) = eye(m2p);
+
+% Recursively estimate AR parameters
+percent=0;
+for t=((p+2):N)
+    
+    % Display progress
+    if (round(t/N*100)>percent)
+        percent=round(t/N*100);
+        disp(['Kalman fiter ' num2str(percent) '%'])
+    end;
+    
+    % Measurement noise (static)
+    s2(:,:,t)=s2static;                                             % Measurement/observation noise estimate
+    
+    % (p-dimension) time-series vector
+    Ft = kron( eye(m), reshape( -(y(:,(t-1):(-1):(t-p))), 1, mp ) );% Regression onto time-series
+    yhat(:,t)=Ft*q(:,t-1);                                          % `a prior' state estimate
+    ert=(y(:,t)-yhat(:,t));                                         % State estimate error
+    
+    % Evidence (before Jazwinski)
+    Wt = ct(:,:,t-1);
+    s2ev = s2(:,:,t) + Ft*S(:,:,t-1)*(Ft.') + Ft*Wt*(Ft.');         % Estimated prediction variance
+    evidence(t) = exp( -0.5*(y(:,t)-yhat(:,t))'*inv(s2ev)*(y(:,t)-yhat(:,t)) );	% PDF at y given N(yhat,s2y)
+    %evidence(t) = evidence(t) / ( (2*pi)^(m/2) * det(s2ev)^(1/2) );
+    
+    % Update state noise covariance
+    switch (statenoisemethod)
+        case 0,
+            % Jazwinski's algorithm
+            if ( alpha < 0 )
+                % Static state noise covariance
+                ct(:,:,t) = -alpha * eye(m2p);
+                Wt = ct(:,:,t);
+            else
+                % Jazwinski algorithm
+                s2q0 = s2(:,:,t) + Ft*S(:,:,t-1)*(Ft.');            % Estimated prediction variance (assumes q=0)
+               %ct(:,:,t) = (ert*ert'-s2q0)/(Ft*(Ft.')); ct(ct<0)=0;% Learning rate
+                ct(:,:,t) = pinv(Ft)*(ert*ert'-s2q0)*pinv(Ft');
+                ct(:,:,t) = diag(diag( (ct(:,:,t)>0).*ct(:,:,t) ));
+                ct(:,:,t) = alpha*ct(:,:,t-1)+(1-alpha)*ct(:,:,t);  % Smoothed learning rate
+                Wt = ct(:,:,t);                                     % Isotropic (c.I) matrix
+            end;
+        case 1,
+            % Arnold
+    end;
+    
+    % Kalman filter equations
+    s2y(:,:,t) = s2(:,:,t) + Ft*S(:,:,t-1)*(Ft.') + Ft*Wt*(Ft.');   % Estimated prediction variance
+    K(:,:,t) = ((S(:,:,t-1) + Wt)*(Ft.'))*pinv(s2y(:,:,t));         % Kalman gain
+    q(:,t) = q(:,t-1) + K(:,:,t)*ert;                               % State mean (AR coefficients)
+    S(:,:,t) = S(:,:,t-1) + Wt - K(:,:,t)*Ft*(S(:,:,t-1) + Wt);     % State covariance
+    
+    % Effective learning rate
+    SnI = S(:,:,t-1) + ct(:,:,t);
+    %rho(:,:,t) = SnI/s2y(:,:,t);
+    %rhoavg(t) = trace(SnI)/s2y(:,:,t)/m2p;
+    
+end;
+
+% Calculate evidence
+%warning off % div 0 on first (p+1) points
+%evidence = exp(-((y-yhat).^2)./(2*s2y)) ./ sqrt(2*pi*s2y);          % PDF at y given N(yhat,s2y)
+%warning on
+
+q0=q;
+q=zeros(m,m,p,N);
+for t=(1:N)
+    q(:,:,:,t) = reshape( reshape( q0(:,t), m*p, m ).', m, m, p );
+end;

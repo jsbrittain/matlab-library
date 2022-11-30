@@ -1,0 +1,171 @@
+function [priorhat,Ahat,hmmar,hmms2] = arhmm_classify(y,p,clustercount,s2,alpharate,varargin)
+%function [priorhat,Ahat,hmmar,hmms2] = arhmm_classify(y,p,clustercount,s2,alpharate,[varargin])
+%
+%
+%
+%       varargin            Optional parameter-value pairs
+%                               evidencethreshold <n>
+%                               prototype (cell arry of start-end times)
+%                                   Seed start AR vectors from specific segments of data
+%                                   { [start stop](secs)#1, []#2, ..., []#n }
+%                               clustermethod
+%                                   1: k-means, 2: GMM (default)
+%
+%function [priorhat,Ahat,hmmar,hmms2] = arhmm_classify(y,p,clustercount,s2,alpharate,[varargin])
+
+% Check input parameters
+if (~iscell(y))
+    y={y};
+end;
+
+% Rotate input vectors
+if (~isvector(y{1}))
+    error(' Input must vector or vector array.');
+end;
+if (size(y{1},1) > size(y{1},2))
+    for n=(1:length(y))
+        y{n} = y{n}.';
+    end;
+end;
+
+% Default parameters
+evidencethreshold = 0.5;        % Evidence threshold for clustering
+prototypeAR = [];               % Prototype AR periods
+clustermethod = 2;              % AR-cluster method
+maxlevel = 8;
+
+% Interpret varargin
+if (mod(length(varargin),2)~=0)
+    error(' Optional arguments must occur in parameter-value pairs.');
+end;
+optargs={};
+for n=(1:2:length(varargin))
+    switch (lower(varargin{n}))
+        case 'evidencethreshold'
+            evidencethreshold = varargin{n+1};
+        case 'prototype'
+            prototypeAR = varargin{n+1};
+            if (~isempty(prototypeAR))
+                clustermethod = 0;
+            end;
+        case 'clustermethod'
+            if (isempty(prototypeAR))
+                clustermethod = varargin{n+1};
+            end;
+        case 'maxlevel'
+            maxlevel = varargin{n+1};
+        otherwise
+            warning([' Unknown parameter-value pair: < ' varargin{n} ', ' varargin{n+1} ' >']);
+    end;
+end;
+
+
+
+%%% Kalman filter AR model
+
+% Concatenate time-series; if discontinuous, evidence will be high and
+% segments will be rejected.
+yall=[y{:}];
+N = length(yall);
+
+% Check model order
+if (isempty(p))
+    pmin = 1; pmax = 20;
+    p=[1 min(pmax,floor(sqrt(N)/2))];
+    [p,porder] = ar_aic_T(yall,p,floor(N/p(2)));
+end;
+
+% Perform Kalman-AR filtering
+[q,s2,evidence,ct,rhoavg] = ar_kalman(yall,p,s2,alpharate);
+
+
+
+%%% Cluster AR coefficients
+
+% Take AR coefficients over whole dataset (high evidence)
+if (isempty(evidencethreshold))
+    evidencethreshold = median(evidence(~isnan(evidence)));
+    disp([' Evidence threshold: ' num2str(evidencethreshold)]);
+end;
+
+% Truncate vector-set for high evidence models
+list=((p+1):size(q,2));
+if (clustermethod>0)
+    list=list(evidence(p+1:end)>evidencethreshold);
+end;
+
+% Clustering
+switch (clustermethod)
+    
+    case 0,
+        % Use prototype AR coefficients
+        
+        % Recovery
+        transform=1; offset=0;
+        
+    case 1,
+        % K-Means clustering (with/without PCA)
+        pca = true;
+        if (pca)
+            [coeff,score,latent,tsquared] = princomp(q(:,list).');
+            [idx,centroid]=kmeans(score,clustercount);
+            components=(latent/sum(latent))>0.01;
+            if (components<3), components=3; end;
+            q0=score(:,(1:components)).';      % Select variance components (>1%)
+            % Recovery
+            transform=coeff'; offset=mean(q(:,list).',1);
+        else
+            % Cluster on raw AR coefficents
+            q0=q(:,list);
+            [idx,centroid]=kmeans(q0.',clustercount);
+            % Recovery
+            transform=1; offset=0;
+        end;
+        
+    case 2,
+        % Gaussian-Mixture-Models (GMM)
+        q0=q(:,list);
+        options = statset('Display','final');
+        obj = gmdistribution.fit(q0.',clustercount,'Options',options);
+        idx = cluster(obj,q0.');
+        centroid=obj.mu;
+        % Recovery
+        transform=1; offset=0;
+        pca=false;
+        
+end;
+id=nan(1,N); id(list)=idx;
+
+% Calculate initial HMM-AR coefficients
+for n=(1:clustercount)
+    hmmar(:,n) = centroid(n,:)*transform+offset;
+end;
+
+
+
+%%% Initialise HMM model
+
+% Select HMM initialisation state
+switch (0)
+    case 0,
+        % Diagonal dominant
+        priorhat = hmm_rownorm(ones(1,clustercount));
+        Ahat = 0.95*eye(clustercount)+0.1*ones(clustercount);
+end;
+hmms2=repmat(s2(end),1,clustercount);
+
+
+
+%% Re-estimate HMM-AR model
+
+% Iterate model estimate
+tic;
+normstep = 1;
+thresholds = (10.^-(2:0.5:maxlevel));
+for n = (1:length(thresholds))
+    disp(['Re-estimating HMM-AR model (th = ' num2str(100*thresholds(n)) '% change)']);
+    [priorhat,Ahat,hmmar,hmms2] = hmmar_reestimatemodel_multiple(y,priorhat,Ahat,normstep,hmmar,hmms2, ...
+                                                                'threshold', thresholds(n), ...
+                                                                'modelth',   thresholds(n)  );
+end;
+disp(['Finished (HMM Training ' num2str(toc/60) ' mins)']);

@@ -1,0 +1,8 @@
+function [,time] = wl_timepower(time,S,params,frange)
+
+
+time = wl_time(time,S);
+
+
+fsearch = nsearchd(params{ind,colind,ch}.freqs,frange);
+mean(S(fsearch(1):fsearch(2)),1));

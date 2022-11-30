@@ -1,0 +1,450 @@
+function [sp11,out1,out2,out3]=mt_sp(dat1,opt1,opt2,opt3,opt4,opt5);
+%function [sp11,[sp22,sp12],params]=mt_sp(dat1,[dat2],rate,opt_str,[v,dk]);
+%
+% Function to produce multitaper estimate of a single trial
+%
+% Supports jackknife construction with multitaper weighting
+%
+% Input parameters
+%       dat1        Time series ch.1
+%       dat2        Time series ch.2
+%       rate        Sampling rate (Hz)
+%       opt_str     Options string
+%                       r<0,1,2>    rectify (none, ch1, ch1&2)
+%                       W<n>        time-bandwidth product (default: 3)(0-none)
+%                       f           maximum analysis frequency (default: Nyquist)
+%                                     f0: full -ve & +ve freq axis
+%                       w<0,1,2>    weighting scheme (uses [v,dk] if specified)
+%                                     0-uniform 1-eigenvalue(default) 2-adaptive
+%                       j           jack-knife estimates (over trials)
+%                       p<n>        zero pad to nth power of 2 (default: next highest)
+%                       d<0,1>      downsample to bandwidth W (0-No,1-Yes(default))
+%                       n<low,high> power normalise segments (freq range (optional))
+%                                   (!FREQ RANGE NOT YET IMPLEMENTED!)
+%                       s           double spectral content (for rejecting -ve freq range)
+%                       l           legacy mode - bring spectra into line with NeuroSpec
+%                       e           return all eigenspectra
+%                                   (!NOT YET IMPLEMENTED!)
+%                       q           Frequency warp signal
+%       v           (opt) slepian sequences (time domain) (ignored if [])
+%       dk            -   weighting vector
+%
+% Plot (2*sp11/rate), accounting for -ve freqs, to determine peak power.
+% (To bring spectra in line with Neurospec set spec_norm to (2*pi*N))
+%
+%function [sp11,[sp22,sp12],params]=mt_sp(dat1,[dat2],rate,opt_str,[v,dk]);
+
+% NB: Mean subtracted data leads to unreadable log10 spectra therefore omit
+%     DC component.
+
+% Determine input arguments
+switch (nargin)
+    case 3, rate=opt1; opt_str=opt2; bivariate=logical(0);
+    case 4, dat2=opt1; rate=opt2; opt_str=opt3; bivariate=logical(1);
+    case 5, rate=opt1; opt_str=opt2; v=opt3; dk=opt4; bivariate=logical(0);
+    case 6, dat2=opt1; rate=opt2; opt_str=opt3; v=opt4; dk=opt5; bivariate=logical(1);
+    otherwise
+        error(' Incorrect number of input parameters');
+end;
+
+% Default parameters
+NW=3;                       % multitaper bandwidth
+maxf=rate/2;                % maximum analysis frequency (Nyquist)
+weight_scheme=1;            % weighting scheme
+multitaper=logical(1);      % perform multitaper analysis
+jackknife=logical(0);       % perform jack-knife over trials
+spec_norm=1;                % spectral normalisation (default value - redefined later)
+pad=logical(0);             % zero pad
+downsample=logical(1);      % downsample to bandwidth W
+normalise=0;                % Power normalise
+doublespec=false;           % Spectral doubling
+eigenwanted=false;          % Return all eigenspectra
+legacy = false;             % Legacy (neurospec) mode
+warp_signal = false;
+warping_lambda = 0.723;
+
+% Conditional defaults
+if (exist('v'))
+    weight_scheme=1;        % can be overridden by w<n> option
+    if (size(v,2)==1)
+        multitaper=0;
+    end;
+end;
+
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'r'                    % Rectify channels
+        	n=str2num(optarg);
+			if ((n<0) | (n>2))
+			    error(['Error in option argument -- r' optarg]);
+			end;  
+			if (n~=1)   % Rectify ch 1.
+			    dat1=abs(dat1);
+			end;  
+			if (n>=1)   % Rectify ch 2.
+			    dat2=abs(dat2);
+			end;
+        case 'W'        % Specify bandwidth
+            NW=str2num(optarg);
+            if (isempty(NW))
+                error(['Error in option argument -- W' optarg]);
+            end;
+            if (NW==0)
+                multitaper=0;
+            end;
+        case 'f'        % Maximum frequency
+            maxf=str2num(optarg);
+            if (isempty(maxf))
+                error(['Error in option argument -- f' optarg]);
+            end;
+        case 'w'        % Weighting scheme
+            weight_scheme=str2num(optarg);
+            if (isempty(weight_scheme))
+                error(['Error in option argument -- w' optarg]);
+            end;
+        case 'j'        % Jack-knife over trials
+            jackknife=1;
+        case 'p'        % Zero pad
+            pad=1;
+            if (isempty(optarg))
+                seg_pwr=ceil(log2(length(dat1)));
+            else
+                seg_pwr=str2num(optarg);
+                if (isempty(seg_pwr))
+                    error(['Error in option argument -- p' optarg]);
+                end;
+            end;
+        case 'd'        % Downsample
+            try     downsample=logical(str2num(optarg));
+            catch   error(['Error in option argument -- d' optarg]);
+            end;
+        case 'n'        % Normalisation
+            normalise=str2num(optarg);
+            if (isempty(normalise))
+                normalise=1;
+            end;
+        case 's'        % Spectral doubling
+            doublespec=true;
+        case 'l'        % Legacy (NeuroSpec) mode
+            legacy = true;
+        case 'e'        % Return all eigenspectra
+            eigenwanted=true;
+        case 'q'    % Frequency warp signal
+            warp_signal = true;
+            if (~isempty(num2str(optarg)))
+                warping_lambda = num2str(optarg);
+            end;
+        otherwise                   % Options for wavelet analysis
+            error(['Unknown option -- ' opt]);
+    end;
+end;
+
+% Pre-process data
+dat1=dat1-mean(dat1);                       % Mean subtract data
+if (bivariate), dat2=dat2-mean(dat2); end;  %  |
+if (legacy)
+    spec_norm=2*pi*length(dat1);            % Spectral normalisation (=1 if commented - has to occur before padding)
+end;
+N=length(dat1);
+if (pad)
+    padding=zeros(2^seg_pwr-length(dat1),1);
+    dat1=[dat1; padding];
+    if (bivariate), dat2=[dat2; padding]; end;
+end;
+padduration=length(dat1);
+
+% Form slepian sequences if not provided
+if (~exist('v'))
+    if (NW==0)
+        v=ones(N,1)/sqrt(N);
+        dk=ones(1);
+        weight_scheme=0;
+    else
+        [v,dk]=dpss(N,NW);
+    end;
+    if (pad)
+        v=[v; zeros(padduration-N,size(v,2))];
+    end;
+end;
+tapercount=length(dk);
+
+% Determine frequency range and maximum frequency
+if (maxf~=0)
+    freqs=rate*[0:padduration/2]/padduration;
+    fmin=2;                 % Remove DC component
+    fmax=min(floor(padduration/2+1),find(abs(freqs-maxf)==min(abs(freqs-maxf)))); % pts
+    freqs=freqs(fmin:fmax);
+else
+    freqs=rate*[0:(padduration/2) (-ceil(padduration/2-1)):-1]/padduration;
+    fmin=1; fmax=padduration;
+end;
+fcount=fmax-fmin+1;
+
+% Allocate memory
+p11=zeros(fcount,tapercount);
+if (bivariate)
+    p22=zeros(fcount,tapercount);
+    p12=zeros(fcount,tapercount);
+end;
+
+% Frequency warp signal and adjust frequency vector
+if ( warp_signal )
+    disp(['Warping trial (lambda = ' num2str(warping_lambda) ')']);
+    % Warp signals
+    dat1 = warpsignal(dat1,warping_lambda);
+    dat2 = warpsignal(dat2,warping_lambda);
+    % Warped frequency transform
+    wf = inline(['atan2((1-' num2str(warping_lambda) '^2)*sin(x),((1+' num2str(warping_lambda) '^2)*cos(x)-2*' num2str(warping_lambda) '));']);
+    
+    %%% Work it out by numerically - messy %%%
+    %%% Find 10 points on curve then spline interpolate for remainder %%%
+    freqs0 = freqs(freqs>=0);
+    xx = (1:floor(length(freqs0)/10):length(freqs0));
+    for nn = (1:length(xx))
+        n = xx(nn);
+        wf1 = inline(['abs( atan2((1-' num2str(warping_lambda) '^2)*sin(x),((1+' num2str(warping_lambda) '^2)*cos(x)-2*' num2str(warping_lambda) ')) - ' num2str(freqs0(n)*2*pi/rate) ');']);
+        yy(nn) = fminbnd( wf1, 0, pi  )*rate/2/pi;
+    end;
+    freqs = interp1( xx, yy, freqs, 'spline' );
+    
+    %plot( freqs, freqs0 );
+    
+end;
+
+% Form multitaper estimate
+for taper=1:tapercount
+    % Power normalise data (OLD - normalise data before transform)
+%     switch (normalise)
+%         case 1,     % Power normalise
+%             if (sum(dat1.^2)>0), dat1=dat1/sqrt(sum(dat1.^2)*rate/N); end;
+%             if (bivariate)
+%                 if (sum(dat2.^2)>0), dat2=dat2/sqrt(sum(dat2.^2)*rate/N); end;
+%             end;
+%         case 2,     % Energy normalise
+%             if (sum(dat1.^2)>0), dat1=dat1/sqrt(sum(dat1.^2)); end;
+%             if (bivariate)
+%                 if (sum(dat2.^2)>0), dat2=dat2/sqrt(sum(dat2.^2)); end;
+%             end;
+%     end;
+
+    % Fourier transform tapered data and truncate
+    w=v(:,taper);
+    F1=fft(w.*dat1); F1=F1(fmin:fmax);
+    if (bivariate)
+        F2=fft(w.*dat2); F2=F2(fmin:fmax);
+    end;
+    % Form periodogram estimates (eigenspectra)
+    p11(:,taper)=(abs(F1).^2)/spec_norm;
+    if (bivariate)
+        p22(:,taper)=(abs(F2).^2)/spec_norm;
+        p12(:,taper)=(F2.*conj(F1))/spec_norm;       % f21 not f12 for cumulant direction
+    end;
+end;
+
+% Downsample to bandwidth W
+padcount=padduration;
+if (downsample && multitaper)
+    bandwidth=2*NW*(freqs(2)-freqs(1));%rate/N;
+    freqsearch=[bandwidth:bandwidth:max(freqs)];
+    if (maxf==0)
+        freqsearch=[freqsearch [0:-bandwidth:min(freqs)]];
+    end;
+    if (rem(2*NW,1)==0),    % Integer sampling of frequency vector
+        if (maxf==0), frange=[1:2*NW:length(freqs)];
+        else          frange=[2*NW:2*NW:length(freqs)];
+        end;
+    else                    % Closest frequency search
+        frange=dsearchn(freqs',freqsearch')';
+    end;
+    fcount=length(frange);
+    freqs=freqs(frange);
+    p11=p11(frange,:);
+    if (bivariate)
+        p22=p22(frange,:);
+        p12=p12(frange,:);
+    end;
+    padcount=ceil(padduration/2/NW);   %fcount;
+end;
+
+% Determine weighting scheme
+switch (weight_scheme)
+    case 0,         % Uniform weighting
+        dk11=ones(fcount,tapercount);
+        if (bivariate)
+            dk22=dk11; dk12=dk11;
+        end;
+    case 1,         % Eigenvalue weighting
+        dk11=dk(:,ones(1,fcount))';
+        if (bivariate)
+            dk22=dk11; dk12=dk11;
+        end;
+    case 2,         % Adaptive weighting
+		b11=mt_dk(p11,var(dat1),dk);                % Expansion coeff weighting
+        dk11=(b11.^2).*(ones(fcount,1)*dk');        % Eigenspectrum weighting (includes lambda)
+        if (bivariate)
+		    b22=mt_dk(p22,var(dat2),dk);            % Expansion coeff weighting
+            dk22=(b22.^2).*(ones(fcount,1)*dk');    % Eigenspectrum weighting (includes lambda)
+            dk12=(b11.*b22).*(ones(fcount,1)*dk');  % Cross-eigenspectrum weighting (includes lambda)
+        end;
+end;
+
+% Spectral doubling
+if (doublespec)
+    p11=2*p11;
+    if (bivariate)
+        p22=2*p22;
+        p12=2*p12;
+    end;
+end;
+
+% Calculate multitaper spectra
+sp11=sum(dk11.*p11,2)./sum(dk11,2);
+if (bivariate)
+    sp22=sum(dk22.*p22,2)./sum(dk22,2);
+    sp12=sum(dk12.*p12,2)./sum(dk12,2);
+end;
+
+% Power normalise
+if (isscalar(normalise))
+    % Check for <0,1> switch
+    if (normalise~=0)
+        normalise=[0 rate/2];
+    end;
+end;
+if (~isscalar(normalise))
+    % Normalise within frequency range
+    fnorm=dsearchn(freqs.',(normalise).');
+    df=freqs(2)-freqs(1);
+    norm1=mean(sp11(fnorm(1):fnorm(2))/df);
+    
+    p11=p11/norm1/spec_norm;
+    sp11=sp11/norm1/spec_norm;
+    
+    if (bivariate)
+        norm2=mean(sp22(fnorm(1):fnorm(2))/df);
+        norm12=sqrt(norm1.*norm2);
+        p22=p22/norm1/spec_norm;
+        p12=p12/norm12/spec_norm;
+        
+        sp22=sp22/norm2/spec_norm;
+        sp12=sp12/norm12/spec_norm;
+    end;
+end;
+
+% Calculate equivalent number segments
+sumdk=sum(dk11,2); L1=1./sum((dk11./sumdk(:,ones(1,tapercount))).^2,2);
+if (bivariate)
+    sumdk=sum(dk22,2); L2=1./sum((dk22./sumdk(:,ones(1,tapercount))).^2,2);
+    sumdk=sum(dk12,2); L12=1./sum((dk12./sumdk(:,ones(1,tapercount))).^2,2);
+    L=min(cat(3,L1,L2,L12),[],3);
+else
+    L=L1;
+end;
+
+% Form parameters structure
+params.N=N;
+params.duration=padduration*rate/1000;
+params.rate=rate;
+params.NW=NW;
+params.freqs=freqs;
+params.fmax=maxf;
+params.trialcount=1;
+params.tapercount=tapercount;
+params.L1=L1;
+if (bivariate)
+    params.L2=L2;
+    params.L12=L12;
+end;
+params.L=L;
+params.jackknife=jackknife;
+params.bootstrap=false;
+params.jkcount=tapercount;
+params.spec_norm=spec_norm;
+params.pad=pad;
+params.padduration=padduration;
+params.padcount=padcount;
+params.downsample=downsample;
+
+% Jackknife for confidence limits
+if (jackknife)
+    % Allocate memory
+    jk11=zeros(fcount,tapercount);
+    if (bivariate)
+        jk22=zeros(fcount,tapercount);
+        jk12=zeros(fcount,tapercount);
+    end;
+	% Construct delete-one-estimates
+    pdk11=sum(dk11.*p11,2); dk11tot=sum(dk11,2);
+    if (bivariate)
+        pdk22=sum(dk22.*p22,2); dk22tot=sum(dk22,2);
+        pdk12=sum(dk12.*p12,2); dk12tot=sum(dk12,2);
+    end;
+    for taper=1:tapercount
+        %tapers=[1:taper-1 taper+1:tapercount];
+        jk11(:,taper)=(pdk11-dk11(:,taper).*p11(:,taper))./(dk11tot-dk11(:,taper));
+        if (bivariate)
+            jk22(:,taper)=(pdk22-dk22(:,taper).*p22(:,taper))./(dk22tot-dk22(:,taper));
+            jk12(:,taper)=(pdk12-dk12(:,taper).*p12(:,taper))./(dk12tot-dk12(:,taper));
+        end;
+    end;
+    clear('pdk11','pdk22','pdk12','dk11tot','dk22tot','dk12tot');
+	% Jack-knife variance of spectral estimates (Thomson 1991 (2.2))
+	meanjk=mean(log10(jk11),2); meanjk=meanjk(:,ones(1,tapercount));
+	params.jk11v=(tapercount-1)*mean((log10(jk11)-meanjk).^2,2);
+    if (bivariate)
+    	meanjk=mean(log10(jk22),2); meanjk=meanjk(:,ones(1,tapercount));
+    	params.jk22v=(tapercount-1)*mean((log10(jk22)-meanjk).^2,2);
+    	meanjk=mean(log10(jk12),2); meanjk=meanjk(:,ones(1,tapercount));
+    	params.jk12v=(tapercount-1)*mean(abs(log10(jk12)-meanjk).^2,2);
+    end;
+	% Construct pseudo-values (mean gives jack-knife estimate of spectra)
+	params.pv11=tapercount*log10(sp11(:,ones(1,tapercount)))-(tapercount-1)*log10(jk11);
+    if (bivariate)
+    	params.pv22=tapercount*log10(sp22(:,ones(1,tapercount)))-(tapercount-1)*log10(jk22);
+    	params.pv12=tapercount*log10(sp12(:,ones(1,tapercount)))-(tapercount-1)*log10(jk12);
+    end;
+    % Output jackknife matrices (used for coherence/phase jackknifing)
+    params.jk11=jk11; clear('jk11');
+    if (bivariate)
+    	params.jk22=jk22; clear('jk22');
+    	params.jk12=jk12; clear('jk12');
+    end;
+    params.p11=p11;
+	if (bivariate)
+        params.p22=p22;
+    	params.p12=p12;
+    end;
+	params.dk11=dk11;
+    if (bivariate)
+    	params.dk22=dk22;
+    	params.dk12=dk12;
+    end;
+    if (bivariate)
+        % Jackknife coherence
+        [coh,params]=jk_sp2_coh(sp11,sp22,sp12,params);
+        params.coh=coh;
+        % Jackknife phase
+        [ph,params]=jk_sp2_ph(sp12,params);
+        params.ph=ph;
+        % Jackknife cumulant density (requires full sp12)
+        if (maxf==0)
+            [q,params]=jk_sp2_q(sp12,params);
+            params.q=q;
+        end;
+    end;
+else
+    if (eigenwanted)
+        params.p11=p11;   params.p22=p22;   params.p12=p12;
+        params.dk11=dk11; params.dk22=dk22; params.dk12=dk12;
+    end;
+end;
+
+if (bivariate)
+    out1=sp22; out2=sp12; out3=params;
+else
+    out1=params;
+end;

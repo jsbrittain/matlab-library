@@ -1,0 +1,77 @@
+function groups = dicom_group( directory, progressbar )
+%
+%
+% Parse folder of DICOM images and return DICOM info headers grouped by
+% image set
+%
+%
+%
+
+% Check input parameters
+if (~exist('directory'))
+    directory = cd;
+end;
+if (~exist('progressbar'))
+    progressbar = true;
+end;
+
+% Initialise progress bar
+if (progressbar)
+    checkstr = 'Checking folder for DICOM images ...';
+    updatestr = checkstr;
+    h = waitbar(0,updatestr);
+    set(h,'WindowStyle','modal');           % Give waitbar precedence
+end;
+
+% Retrieve file list from current folder
+contents = dir(handles.userdata.currentfolder);
+contents = contents(~[contents.isdir]);
+
+% Parse folder for DICOM images
+dicomlist = {}; dicomsfound = 0; filecount = 0; plural = ''; info=[];
+for n=(1:length(contents))
+    
+    % Update progress bar
+    if (progressbar)
+        if ( filecount > dicomsfound )
+            dicomsfound = length(dicomlist);
+            if (dicomsfound>1)
+                plural = 's';
+            end;
+            updatestr = [checkstr ' (' num2str(filecount) ' images; ' num2str(dicomsfound) ' scan' plural ')'];
+        end;
+        waitbar((n-1)/length(contents),h,updatestr);
+    end;
+    
+    % Check for valid DICOM files
+    if (contents(n).bytes>0)            % Crashes on zero byte files
+        try
+            info = dicominfo([directory fi contents(n).name]);
+        catch exception
+            % Not a valid DICOM - iterate to next element
+            continue;
+        end;
+
+        % Check if DICOM series has previously been identified
+        foundentry = false;
+        for k=(1:length(dicomlist))
+            if (strcmp(dicomlist{k}{1}.SeriesInstanceUID, info.SeriesInstanceUID))
+                foundentry = true;
+                dicomlist{k}{end+1} = info;
+                break;
+            end;
+        end;
+
+        % Concatenate DICOM file to DICOM-list
+        filecount = filecount + 1;
+        if (~foundentry)
+            dicomlist{end+1}{1} = info;
+        end;
+    end;
+    
+end;
+
+% Close progress bar
+if (progressbar)
+    close(h);
+end;

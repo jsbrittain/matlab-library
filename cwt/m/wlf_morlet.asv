@@ -1,0 +1,38 @@
+function [psi]=wlf_morlet(omega,s,dt,w0,param);
+%function [psi]=wlf_morlet(omega,s,dt,w0);
+%function [parameters]=wlf_morlet(omega,s,dt,w0,param);
+%
+% Wavelet: Morlet
+% Fourier transform
+%
+% Common parameters
+%   s       Scale
+%   omega   Frequencies
+%   dt      Time resolution
+%   param   (opt) Return wavelet parameters only (set=1)
+%
+% Additional parameters
+%   w0      central frequency of the mother wavelet
+
+% Check if 'param' set to 1
+if (nargin<5)
+    param=0;
+end;
+
+if (param~=1)
+
+    % Calculate wavelet response in the frequency domain
+    sw=s*omega;
+	psi0=(pi.^(-1/4)).*exp(-((sw-w0).^2)/2);
+	norm=sqrt(2*pi*s/dt);
+    
+	% Normalised wavelet
+	psi=norm*psi0;
+    
+else
+
+	% Return wavelet parameters
+    psi.psi0=(pi.^(-1/4)).*exp(-((sw-w0).^2)/2);
+    psi.fourier_factor=(4*pi)/(w0+sqrt(2+w0.^2));
+    psi.coi=1/sqrt(2);
+end;

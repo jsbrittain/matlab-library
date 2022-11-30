@@ -1,0 +1,11 @@
+function joystick_plot_rangle_err(joystick)
+
+M=16;
+
+plot(rangle60,'k'); plot(xlim,[0 0],'k'); ylim(120*[-1 1]);
+t=(1:M:length(rangle));
+for k=(1:length(t))
+    tt=t(k)+[0:(M-1)]; tt=tt(tt<length(rangle));
+    plot(mean(tt),nanmean(rangle(tt)),'ro');
+    plot(mean(tt)*[1 1],nanmean(rangle(tt))+1.96*[-1 1]*nanstd(rangle(tt)),'r');
+end;

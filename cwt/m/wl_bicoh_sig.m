@@ -1,0 +1,113 @@
+function cl=wl_bicoh_sig(nco,ncy,rate,A)
+%function cl=wl_bicoh_sig(nco,ncy,[rate],[A])
+%
+% Wavelet bicoherence significance levels
+% Based on the wavelet bicoherence paper by Lauchaux et al. (2002), with
+% analytic significance levels derived from Welch (1967) and DMH (1995).
+%
+% Adapted to cope with non-integer values of ncy
+%
+% Input parameters
+%   nco         Number of oscillations per wavelet
+%   ncy         Number of windows per integration window
+%   rate        (opt) Sampling rate (default: continuous integral)
+%   A           (opt) Percentage gaussian area of significance
+%                     default: 1-exp(-2)
+%
+% Output
+%   cl          Confidence limits structure
+%     .K            Number of effective segments
+%     .coh95        95% confidence limit for coherence
+%
+% Refs:
+%   Lachaux J-P, et al. (2002), Estimating the time-course of
+%       coherence between single-trial brain signals: an introduction to wavelet
+%       coherence. Neurophysiol. Clin. 32:157-174.
+%   Welch P.D. (1967), The Use of Fast Fourier Transform for the Estimation
+%       of Power Spectra: A Method Based on Time Averaging Over Short, Modified
+%       Periodograms.  IEEE Trans. Audio Electroacoust. Jun 1967 vol.AU-15:70-73.
+%
+% NB: Variance is twice the normal value at fn=0,1/2 (0ver freqs 0->1/2)
+%     This may achieved by calculating the limits with
+%     cl.K=cl.K/2 at these points.
+%
+%function cl=wl_bicoh_sig(nco,ncy,[rate],[A])
+
+% Determine input parameters
+if (nargin<4)
+    A=1-exp(-2);                            % Significant gaussian area (arbitrary choice)
+end;
+if (nargin<3)
+    rate=0;
+end;
+
+% Common parameters
+K=ncy;
+root2=sqrt(2);
+partialseg=ncy-fix(ncy);
+
+% Frequency independent constants
+x1=root2*erfinv(A); w0=2*pi*nco/(2*x1);      % Define w0 for morlet based on nco
+af=(w0+sqrt(2+w0^2))/(4*pi);                 % Scale (a=af/f), where af is freq independent
+xf=nco/2;                                    % Half-window width (gaussian)
+if (ncy<=1), Df=0; else Df=ncy/(ncy-1); end; % Overlap offset (as in Welch, 1967)
+
+% Calculate correlation between periodograms
+if (rate==0)
+    % Continuous solution (Formulated as a frequency independent solution)
+    j=1:ncy-1;
+    % Bounded integral between product of gaussian at 0 and gaussian at mu (j*D) (both having the same variance)
+    Wj=(exp(-(j*Df./(2*af)).^2)/4).*(erf((2*xf-j*Df)./(2*af))-erf((j*Df-2*xf)./(2*af)));
+    % Bounded integral for gaussian^2 at origin
+    W0=.25*(erf(xf/af)-erf(-xf/af));
+    % Check for partial segments (ncy not an integer)
+    if ((fix(ncy)~=ncy) & (ncy>1))
+        j=ceil(ncy-1);
+        Wpart=(exp(-(j*Df./(2*af)).^2)/4).*(erf((2*min(xf,j*Df+xf*(2*partialseg-1))-j*Df)./(2*af))-erf((j*Df-2*xf)./(2*af)));
+        Wj=[Wj Wpart];
+    end;
+    % Remove integrals where lower bound is larger than the initial window width
+    j=1:ceil(ncy-1);
+    Wj((j*Df-xf)>xf)=0;
+    % Correlation between periodograms (reduced to correlation between windows)
+	p=(Wj.^2)/(W0^2);
+else
+	% Discrete solution (summing over all points and shifted windows - slower)
+    % This solution approaches that of the continuous solution for high sampling rates
+    
+    if (mod(ncy,1)~=0)
+        error('Discrete summation over non-integer ncy not supported at this time');
+    end;
+    
+    % Kprime constant for all f - calculate with f=1
+	f=1;
+    x=xf/f;
+    a=af/f;
+	D=Df/f;
+	sigma=a;
+    
+	dt=1/rate;
+	t=-x:dt:x;
+    W0=(1/sqrt(2*pi*sigma^2))*exp(-t.^2./(2*sigma^2));
+    Wj=zeros(1,ncy-1);
+	for j=1:ncy-1
+        mu=j*D;
+        startN=fix(mu*rate);
+        % Discrete summation between gaussian at origin and an identical shifted gaussian (windowed to origin's width)
+        Wj(j)=sum(W0(startN:end).*W0(1:end-startN+1));
+	end;
+    W0=sum(W0.^2);
+    p=Wj.^2./W0.^2;
+end;
+
+% Calculate effective number of segments with overlap
+j=1:ceil(K-1);
+Kprime=K/(1+2*sum(((K-j)/K).*p));
+
+% Construct confidence limits
+cl.K=Kprime;
+if (Kprime<=1)
+    cl.coh95=1;
+else
+    cl.coh95=1-(0.05)^(1/(Kprime-1));
+end;

@@ -1,0 +1,124 @@
+function [W,wlparam]=wlfGaborTransform(x,dt,df,frange,opt,mother,wlopt);
+%function [W,wlparam]=wlfGaborTransform(x,dt,df,frange,opt,mother,wlopt);
+%
+% Interogate the signal with the wavelet equivalent to a Gabor atom
+% (See Addison p.49).  Hold scale=1 for all frequencies, but adjust
+% the central wavelet frequency (for the MORLET wavelet only) to enable
+% analysis of the signal.
+%
+% Parameters
+%   x           Time series
+%   dt          Time-resolution
+%   df          Frequency-resolution (as a Fourier period)
+%   frange      Frequency range [fmin fmax] ([]=default)
+%   opt         Analysis options
+%                   p - zero pad to nearest power of 2
+%
+% Redundant parameters (Kept for compatibility and future expansion)
+%   mother      Mother wavelet (must be 'morlett')
+%   wlopt       Wavelet options
+%
+% Reference
+%   Addison, P. S. (2002), The Illustrated Wavelet Transform Handbook:
+%   Introductory Theory and Applications in Science. Engineering, Medicine
+%   and Finance Institute of Physics Publishing.
+%
+%function [W,wlparam]=wlfGaborTransform(x,dt,df,frange,opt,mother,wlopt);
+
+% Check input parameters
+if (~isempty(frange))
+    if (length(frange)~=2)
+        error('frange must be a two element vector [fmin fmax] or empty');
+    else
+        fmin=frange(1);
+        fmax=frange(2);
+    end;
+else
+    fmin=df;
+    fmax=1/(2*dt);
+end;
+
+% Parse options string
+pad=0;
+options=deblank(opt);
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'p'            % Pad time series
+        	pad=1;
+        case 's'            % Manual scale adjustment
+            scale=str2num(optarg);
+    	otherwise
+            error (['Illegal option -- ',opt]);
+    end;
+end;
+
+% Generate full frequency range
+freqs=fmin:df:fmax;
+
+% Zero pad time series
+if (pad)
+    padding=2^ceil(log2(length(x)))-length(x);
+    x=[x; zeros(padding,1)];
+else
+    padding=0;
+end;
+N=length(x);
+
+% Fourier transform time series
+fx=fft(x);
+
+% Determine mother wavelet
+mother='morlet';
+wlf_mother=['wlf_' mother];
+
+% Determine analysis frequencies
+halflength=floor(N/2);
+omega=[(2*pi*(0:halflength)/(N*dt)) (-(2*pi*((halflength+1):(N-1)))/(N*dt))]';
+
+% At each scale
+if (~exist('scale'))
+    scale=1;
+end;
+W=zeros(length(freqs),N);
+for ind=1:length(freqs)
+    % Compute normalised wavelet transform
+    w0=2*pi*freqs(ind)*scale;
+    wlf=feval(wlf_mother,omega,scale,dt,w0);
+    W(ind,:)=ifft(fx.*conj(wlf))';
+end;
+
+% Remove any zero padding
+W=W(:,1:(size(W,2)-padding));
+N=N-padding;
+
+% Obtain wavelet parameters
+wlp_mother=['wlp_' mother];
+[wlparam]=feval(wlp_mother,omega,scale,dt,1,0);      % NB: Set dj=1, wlopt{:}=w0=0
+
+% Calculate COI (constant for all scales, sqrt(2))
+coi=zeros(1,N);
+gb_coi(1)=scale/(wlparam.coi*dt);
+gb_coi(2)=N-gb_coi(1)+1;
+front=1:fix(gb_coi(1));
+back=N-front+1;
+if (length(front)>0)
+    coi(front)=freqs(end);
+    coi(back)=freqs(end);
+end;
+wlparam.coi=coi;
+wlparam.gb_coi=gb_coi;
+
+% Pass back transform options
+wlparam.pad=pad;
+wlparam.linearscale=1;
+wlparam.omega=omega;
+wlparam.dt=dt;
+wlparam.freqs=freqs;
+
+% Additional default parameters
+wlparam.display_coi=1;
+wlparam.display_scale=0;
+wlparam.label='';
+wlparam.gabor=1;

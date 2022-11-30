@@ -1,0 +1,102 @@
+function [prior,A,hmmar,hmms2,accuracyiter]=hmmar_reestimatemodel(y,prior,A,step,hmmar,hmms2,state)
+%
+% Re-estimate HMM-AR model given initial estimate of (prior, A),
+% measurement sequence and a set of AR coefficients.
+%
+% Input parameters
+%       y           Measurement sequence
+%                     ( 1 x N )
+%       prior       
+%       A           
+%       step        Scale estimate every `step' samples (0=none; 1=default)
+%       hmmar       
+%       hmms2       
+%       state       (opt) Correct state sequence (used for validation)
+%                     ( 1 x N )
+%
+% Output parameters
+%       prior, A, hmmar, hmms2      Updated parameters
+%       accuracyiter                Accuracy of estimate if known state sequence provided [0, 1]
+%
+
+% Check input parameters
+validateaccuracy = false;
+if (exist('state','var'))
+    if (~isempty(state))
+        validateaccuracy = true;
+    end;
+end;
+
+% Determine data parameters
+N = length(y);
+Q = length(prior);
+p = size(hmmar,1);
+
+% Ensure each state has an associated variance estimate
+if ((p>1) && (length(hmms2)==1))
+    hmms2 = hmms2 * ones(1,p);
+end;
+
+% Reserve variable space
+X = zeros(N,p);
+if (validateaccuracy)
+    accuracyiter=[];
+else
+    if (nargout>4)
+        warning(' Validated accuracy requested but no state sequence provided!');
+        accuracyiter=[];
+    end;
+end;
+
+% Compute probability of measurement being in each state
+[b,yb] = ar_obslik(y,hmmar,hmms2);
+logp0 = chmm_probobs(b(:,(p+2:N)),prior,A,step);
+
+% Compute matrix X
+for t=((p+2):N)
+    X(t,:) = -[y((t-1):(-1):(t-p))];
+end;
+
+% Iteration threshold (percentage change log p)
+th=1e-6;
+maxiter=500;
+
+% Iterate re-estimation procedure
+n=1; logp=0;
+while (((1-logp/logp0)>th) && (n<maxiter) )
+    
+    % Iterate model parameters
+    [prior,A,gammati] = chmm_estimatemodel(b(:,(p+2:N)),prior,A,step);
+    
+    % Update AR coefficients (See Penny & Roberts 1999, p.487)
+    for j=(1:Q)
+        % Phrase AR coefficient update in least-squares form
+        C = sparse(diag(sqrt(gammati(:,j))));
+        Y = y(p+2:N-1).';
+        Xtilde = C*X(p+2:N-1,:);
+        Ytilde = C*Y;
+        
+        % Solve least-squares using (more efficient) SVD
+        %hmmar(:,j) = inv((Xtilde.')*Xtilde)*(Xtilde.')*Ytilde;
+        [U,S,V] = svd(Xtilde,'econ');
+        hmmar(:,j) = (V.')*pinv(S)*(U.')*Ytilde;
+        
+        hmms2(j) = sum((gammati(:,j).').*((y(p+2:N-1)-yb(j,p+2:N-1)).^2))./sum(gammati(:,j));
+    end;
+    
+    % Track fitting
+    logp0=logp;
+    logp = chmm_probobs(b(:,(p+2:N)),prior,A,step);
+    
+    % Check accuracy if state sequence known
+    if (validateaccuracy)
+        % Viterbi solution
+        [b,yb] = ar_obslik(y,hmmar,hmms2);
+        [q,~] = chmm_viterbi(b(:,(p+2:N)),prior,A);
+        accuracyiter(n) = length(find(q==state(p+2:N)))/length(q);
+    end;
+    
+    % Increment loop counter
+    n=n+1;
+    
+end;

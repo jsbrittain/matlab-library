@@ -1,0 +1,90 @@
+function [time,q,c95]=kf_nae(dat,rate,trig,duration,onset,offset,opt_str);
+%function [time,q,c95]=kf_nae(dat,rate,trig,duration,onset,offset,opt_str);
+%
+% Generate Normalised Activity Envelope (NAE) for variable length duration
+% segments
+%
+% This routine generates the average Fourier transform from a triggered
+% region (including zero padding in the frequency domain) and inverse
+% transforms to display an average (normalised length) activity envelope.
+% Segment energy is also normalised to prevent longer envelopes swamping
+% the analysis.
+%
+% Power normalisation applied so that each trial has sample variance 1,
+% thus the mean of L trials has sample variance 1/L and 95% conf. under
+% null hypothesis is "0 +/- 1.96*sqrt(1/L)".  Produces same shape as energy
+% normalisation.
+%
+% Input parameters
+%       dat             Time series
+%       rate            Sampling rate
+%       trig            Trigger times (samples)
+%       duration        Duration vector (msecs)
+%       onset           Pre-duration offset (percentile of duration)
+%       offset          Post-duration offset (percentile of duration)
+%       opt_str         Options string
+%                           r - Rectify time series
+%
+% Output parameters
+%       time            Time axis (normalised to triggered region)
+%       q               Average activity envelope of energy normalised segments
+%       c95             Upper and lower 95% confidence interval about 0 (independence)
+%
+%function [time,q,c95]=kf_nae(dat,rate,trig,duration,onset,offset,opt_str);
+
+% Check input parameters
+if (nargin~=7)
+    error(' Incorrect number of input parameters');
+end;
+
+% Parse options string
+options=deblank(opt_str); opt_str='';
+while (any(options))                % Parse individual options from string.
+	[opt,options]=strtok(options);
+	optarg=opt(2:length(opt));      % Determine option argument.
+	switch (opt(1))
+	    case 'r'                    % Rectify channels
+        	dat=abs(dat-mean(dat));
+        otherwise                   % Options for wavelet analysis
+            error(['Unknown option -- ' opt]);
+    end;
+end;
+
+% Crop triggers to only include those segments fully defined in the time range
+dur=duration*rate/1000;
+trigpos=(((trig+round(onset*dur))>0) & ((trig+round(offset*dur))<=length(dat)));
+dur=dur(trigpos); trig=trig(trigpos);
+
+% Determine parameters
+maxdur=max(duration)*rate/1000;     % samples
+trigcount=length(trig);
+N=round((offset-onset)*maxdur+1);
+
+% Reserve variable space
+F11=zeros(N,1);
+
+% Form spectra
+for ind=1:trigcount
+    % Determine data segment
+    trange=trig(ind)+round(onset*dur(ind))+[0:round((offset-onset)*dur(ind))];
+    % Zero pad Fourier transform (zero mean and energy normalise segment first)
+    dat1=dat(trange)-mean(dat(trange));     % Zero mean
+    %dat1=dat1/sqrt(sum(dat1.^2));           % Energy normalise
+    dat1=dat1/sqrt(sum(dat1.^2)/length(dat1)); % Power normalise (for conf. limits)
+    F1=fft(dat1)/sqrt(length(dat1));                           % Fourier transform
+    zcount=N-length(F1);                    % Zero pad count
+    F1=[F1(1:ceil(length(F1)/2)); ...       % Zero pad in freq domain
+        zeros(zcount,1); ...                %  |
+        F1(ceil(length(F1)/2+1):end)];      %  |
+    % Apply power correction factor for zero padding
+    F1=F1*sqrt(N/length(dat1));
+    % Form average Fourier transform
+    F11=F11+F1/trigcount;
+end;
+
+% Determine envelope
+q=real(ifft(F11)*sqrt(length(F11)));
+time=((onset*maxdur)+[0:length(q)-1])/maxdur;
+
+% Construct 95% confidence interval (Valid only for power normalisation)
+c95=1.96/sqrt(trigcount);

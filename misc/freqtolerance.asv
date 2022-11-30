@@ -1,0 +1,110 @@
+function analysis = freqtolerance( dat, fc, fbandwidth, rate, precision, rejectmode )
+%
+%
+% rejectmode
+%   0    Do nothing
+%   1    High-split median
+%   2    Low-split median
+%   3    Reject lowest 5th-percentile
+%
+
+if (~exist('precision'))
+    precision = [];
+end;
+if (isempty(precision))
+    precision = 10;
+end;
+
+if (~isvector(dat))
+    error(' Input must be univariate vector time-series.');
+end;
+if (size(dat,2)>size(dat,1))
+    dat = dat.';
+end;
+
+% Filter
+if (~isempty(fc))
+    [bh,ah] = butter(3,(fc-fbandwidth/2)/(rate/2),'high');
+    [bl,al] = butter(3,(fc+fbandwidth/2)/(rate/2),'low');
+    datf = filtfilt(bh,ah,filtfilt(bl,al,dat));
+else
+    datf = dat;
+end;
+mag = abs(hilbert(datf));
+time = (1:length(dat))/rate;
+
+% Threshold crossing
+crossingtimes = find(diff(datf>0)>0);
+instperiod = time(crossingtimes);
+instfreq = 1./diff(instperiod);
+instfreq_shuffled = instfreq(randperm(length(instfreq)));
+instmag=mag(crossingtimes);
+
+% Transpose vector as necessary
+if (size(instfreq,1)<size(instfreq,2))
+    instfreq = instfreq';
+end;
+
+% Stratify and reject data
+ifstrat = round(instfreq/precision);
+switch ( rejectmode )
+    case 0, keep = true(size(ifstrat));
+    case 1, keep = instmag(2:end) > median(instmag);
+    case 2, keep = instmag(2:end) < median(instmag);
+    case 3, keep = instmag(2:end) > quantile(instmag,0.05);
+    otherwise error('Unknown reject mode specified!');
+end;
+
+for fn = (1:(100/precision))        % 100 Hz max
+    ifchangeMed(fn)   = nanmedian( instfreq(circshift((ifstrat==fn) & keep,-1))-instfreq((ifstrat==fn) & keep) );  % dF(n+1) - dF(n)
+    ifchangeMean(fn)  =   nanmean( instfreq(circshift((ifstrat==fn) & keep,-1))-instfreq((ifstrat==fn) & keep) );
+    ifchangeStd(fn)   =    nanstd( instfreq(circshift((ifstrat==fn) & keep,-1))-instfreq((ifstrat==fn) & keep) );
+    ifchangeCount(fn) =    nansum(          	     ((ifstrat==fn) & keep)                           );
+    ampMean(fn)       =   nanmean( instmag((ifstrat==fn) & keep) );
+    ampStd(fn)        =    nanstd( instmag((ifstrat==fn) & keep) );
+    freqs(fn) = fn*precision;
+end;
+
+[~,maxfreq] = max( ampMean ); maxfreq = freqs(maxfreq);
+%ifchangeMean([1:dsearchn(freqs',fc-2*nanstd(instfreq(keep))) dsearchn(freqs',fc+2*nanstd(instfreq(keep))):end]) = NaN;
+
+% Quantify -- std dev crossing points
+fc = nanmean( instfreq );
+fn = dsearchn( freqs.', fc );
+f1 = freqs( find( (ifchangeMean(1:fn)  -0.5*ifchangeStd(1:fn)) > 0, 1, 'last' ) );
+f2 = freqs( find( (ifchangeMean(fn:end)+0.5*ifchangeStd(fn:end)) < 0, 1, 'first' ) + fn - 1 );
+
+% Quantify -- piecewise fit
+x0 = [ 1 1 fc+nanstd(instfreq(keep))*[-1 1] ];
+%[piecefit,fval_3] = fminunc(@(x)trilinearstep_err(x,freqs,ifchangeMean,ifchangeStd),x0);
+[piecefit,fval_3] = fmincon(@(x)trilinearstep_err(x,freqs,ifchangeMean,ifchangeStd),x0,[0 0 1 -1; -1 0 0 0; 0 -1 0 0],[0; 0; 0],[],[],[0.25 0.25 fc-4*nanstd(instfreq(keep)) fc],[10 10 fc fc+4*nanstd(instfreq(keep))]);
+aic_3 = fval_3 + 2*length(x0);
+
+% Quantify -- linear fit
+fval_1 = (( ifchangeMean(~isnan(ifchangeMean)) - polyval(polyfit(freqs(~isnan(ifchangeMean)),ifchangeMean(~isnan(ifchangeMean)),1),freqs(~isnan(ifchangeMean))) ).^2)./ifchangeStd(~isnan(ifchangeMean));
+fval_1 = nansum( fval_1(~isinf(fval_1)) );
+aic_1 = fval_1 + 2*2;
+
+% Quantify -- direct measure of tolerance width by std.dev about mean
+
+
+% Record analysis
+analysis.crossingtimes      = crossingtimes(:);
+analysis.instperiod         = instperiod(:);
+analysis.instfreq           = instfreq(:);
+analysis.instfreq_shuffled  = instfreq_shuffled(:);
+analysis.instmag            = instmag(:);
+
+analysis.freqs              = freqs;
+analysis.ifchangeMed        = ifchangeMed;
+analysis.ifchangeMean       = ifchangeMean;
+analysis.ifchangeStd        = ifchangeStd;
+analysis.ifchangeCount      = ifchangeCount;
+analysis.ampMean            = ampMean;
+analysis.ampStd             = ampStd;
+
+analysis.fit.piecefit = piecefit;
+analysis.fit.aic_1    = aic_1;
+analysis.fit.fval_1   = fval_1;
+analysis.fit.aic_3    = aic_3;
+analysis.fit.fval_3   = fval_3;

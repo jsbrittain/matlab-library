@@ -1,0 +1,67 @@
+function cf_phph_amp_summary( r, rangle, upscaling )
+
+% Check input parameters
+if (~exist('upscaling','var'))
+    upscaling = [];
+end;
+
+% Default parameters
+if (isempty(upscaling))
+    upscaling = 4;
+end;
+
+% Convolution matrix
+conv_matrix = ones(2);
+conv_matrix = conv_matrix/numel(conv_matrix);
+dt = 1/upscaling;  % Upsample factor (0.25 for 4x)
+
+% Determine data parameters
+bincount = size(r,1);
+
+% New figure
+figure;
+
+% Phase-phase plot
+sph = subplot(5,5,[2:5 7:10 12:15]);
+    [X,Y] = meshgrid(rangle);
+    [XI,YI] = meshgrid(interp1(1:bincount,rangle,1:dt:bincount));
+    M = interp2( X, Y, convolve2( r, conv_matrix, 'wrap'), XI, YI );
+    imagesc([-pi pi],[-pi pi],flipud(M));
+    % Format plot
+    image_reverseyaxis; colorbar; %axis('square');
+    hold('on'); plot(xlim,fliplr(ylim),'k');
+    pos0 = get(gca,'pos');
+    % Upsample original data (for joint distributions; compresses conf intervals)
+    if ( false )
+        r = M;
+        rangle = XI(1,:);
+    end;
+
+% Joint distribution (y-axis)
+subplot(5,5,[1 6 11 16]);
+    fill( [ mean(r,2)-1.96*std(r,[],2)/sqrt(size(r,2)); flipud(mean(r,2)+1.96*std(r,[],2)/sqrt(size(r,2)))], [ rangle fliplr(rangle) ], 'g', 'facecolor', [1 1 1]*0.8, 'facealpha', 0.8 );
+    hold('on'); plot(mean(r,2),rangle,'k'); axis('tight'); %ylim([-pi pi]);
+    pos = get(gca,'position'); set(gca,'position',[pos(1) pos0(2) pos(1) pos0(4)]);
+    
+% Joint distribution (x-axis)
+subplot(5,5,(17:20));
+    fill( [ rangle fliplr(rangle) ], [ mean(r,1)-1.96*std(r,[],1)/sqrt(size(r,1)) fliplr(mean(r,1)+1.96*std(r,[],1)/sqrt(size(r,1)))], 'g', 'facecolor', [1 1 1]*0.8, 'facealpha', 0.8 );
+    hold('on'); plot(rangle,mean(r,1),'k'); axis('tight'); %xlim([-pi pi]);
+    pos = get(gca,'position'); set(gca,'position',[pos0(1) pos(2) pos0(3) pos(4)]);
+
+% Joint distribution (diagonal)
+f = zeros(1,size(r,1)-2); fs = f; fc = f;
+krange = (-(size(r,1)-1):(size(r,1)-1));
+for k = (1:length(krange))
+    f(k)=mean(diag(r,krange(k)));
+    fs(k)=std(diag(r,krange(k)));
+    fc(k)=length(diag(r,krange(k)));
+end;
+krangep = (-1:2/(length(krange)-1):1)*2*pi;
+subplot(5,5,(21:25));
+    fill( [krangep fliplr(krangep)], [(f-1.96*fs./sqrt(fc)) fliplr(f+1.96*fs./sqrt(fc))], 'g', 'facecolor', [1 1 1]*0.8, 'facealpha', 0.8 );
+    hold('on'); plot(krangep,f,'k'); %xlim([-pi pi]);
+    axis('tight'); xlabel('DIAGONAL');
+
+% Switch focus on return
+axes(sph);
